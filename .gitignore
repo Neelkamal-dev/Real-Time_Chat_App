@@ -1,0 +1,13 @@
+# Ignore dependencies in both folders
+    client/node_modules/
+    server/node_modules/
+
+    # Ignore build files
+    client/dist/
+    client/build/
+
+    # Ignore environment variables
+    .env
+    client/.env
+    server/.env
+    ```

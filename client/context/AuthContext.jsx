@@ -17,6 +17,21 @@ export const AuthProvider = ({children}) =>{
   const [onlineUsers,setOnlineUsers] = useState([]);
   const [socket,setSocket] = useState(null);  
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
 
   const setAuthToken = (token) =>{
     setToken(token);
@@ -121,6 +136,8 @@ export const AuthProvider = ({children}) =>{
     onlineUsers,
     socket,
     isCheckingAuth,
+    theme,
+    toggleTheme,
     setAuthUser,
     login,
     logout,

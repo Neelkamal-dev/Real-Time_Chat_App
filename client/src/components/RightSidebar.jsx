@@ -16,16 +16,16 @@ const RightSidebar = () => {
 
   return (
     <div
-      className={`bg-[#8185B2]/10 text-white w-full relative overflow-y-scroll max-md:hidden h-full`}
+      className="bg-[#8185B2]/10 text-slate-800 dark:text-white w-full relative overflow-y-scroll max-md:hidden h-full"
     >
       {/* Profile Section */}
       <div className="pt-16 flex flex-col items-center gap-2 text-xs font-light mx-auto">
         <img
           src={selectedUser?.profilePic || assets.avatar_icon}
           alt={selectedUser.fullName}
-          className="w-20 h-20 object-cover rounded-full"
+          className="w-20 h-20 object-cover rounded-full shadow-md"
         />
-        <h1 className="px-10 text-xl font-medium mx-auto flex items-center gap-2">
+        <h1 className="px-10 text-xl font-medium mx-auto flex items-center gap-2 text-slate-850 dark:text-white">
           <span
             className={`w-2.5 h-2.5 rounded-full ${
               isOnline ? "bg-green-500" : "bg-gray-500"
@@ -33,24 +33,24 @@ const RightSidebar = () => {
           ></span>
           {selectedUser.fullName}
         </h1>
-        <p className="px-10 text-center text-gray-300">{selectedUser.bio || "No bio yet."}</p>
+        <p className="px-10 text-center text-slate-600 dark:text-gray-300">{selectedUser.bio || "No bio yet."}</p>
       </div>
 
       {/* Divider */}
-      <hr className="border-[#ffffff50] my-4" />
+      <hr className="border-slate-200 dark:border-[#ffffff50] my-4" />
 
       {/* Media Section */}
       <div className="px-5 text-xs">
         <p className="font-semibold mb-2">Media Share</p>
         {sharedImages.length === 0 ? (
-          <p className="text-gray-400 italic">No media shared yet.</p>
+          <p className="text-gray-500 dark:text-gray-400 italic">No media shared yet.</p>
         ) : (
           <div className="max-h-[250px] overflow-y-scroll grid grid-cols-2 gap-2 opacity-90 pb-20">
             {sharedImages.map((url, index) => (
               <div
                 key={index}
                 onClick={() => window.open(url)}
-                className="cursor-pointer aspect-square rounded overflow-hidden border border-gray-700 bg-black/20 hover:opacity-85 transition-all"
+                className="cursor-pointer aspect-square rounded overflow-hidden border border-slate-200 dark:border-gray-700 bg-slate-100 dark:bg-black/20 hover:opacity-85 transition-all shadow-sm"
               >
                 <img src={url} alt="shared" className="w-full h-full object-cover" />
               </div>

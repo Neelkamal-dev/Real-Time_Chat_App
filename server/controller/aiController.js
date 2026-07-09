@@ -46,7 +46,7 @@ export const getSmartRepliesHandler = async (req, res) => {
     }
 
     const cacheKey = `suggestions:${chatId}:${userId}`;
-    const cachedSuggestions = cacheService.get(cacheKey);
+    const cachedSuggestions = await cacheService.get(cacheKey);
     if (cachedSuggestions) {
       return res.json({ success: true, suggestions: cachedSuggestions });
     }
@@ -70,7 +70,7 @@ export const getSmartRepliesHandler = async (req, res) => {
     }
 
     const suggestions = await generateSmartReplies(context);
-    cacheService.set(cacheKey, suggestions, 30000); 
+    await cacheService.set(cacheKey, suggestions, 300); 
 
     return res.status(200).json({ success: true, suggestions });
   } catch (error) {
@@ -94,13 +94,13 @@ export const rewriteMessageHandler = async (req, res) => {
     }
 
     const cacheKey = `rewrite:${tone}:${Buffer.from(text).toString("base64")}`;
-    const cachedRewrite = cacheService.get(cacheKey);
+    const cachedRewrite = await cacheService.get(cacheKey);
     if (cachedRewrite) {
       return res.json({ success: true, rewrittenText: cachedRewrite });
     }
 
     const rewrittenText = await rewriteText(text, tone);
-    cacheService.set(cacheKey, rewrittenText, 60000); 
+    await cacheService.set(cacheKey, rewrittenText, 300); 
 
     return res.status(200).json({ success: true, rewrittenText });
   } catch (error) {
@@ -117,6 +117,12 @@ export const getUnreadSummaryHandler = async (req, res) => {
 
     if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
       return res.status(400).json({ success: false, message: "A valid Chat ID (chatId) is required." });
+    }
+
+    const cacheKey = `summary:${chatId}:${userId}`;
+    const cachedSummary = await cacheService.get(cacheKey);
+    if (cachedSummary) {
+      return res.json({ success: true, summary: cachedSummary });
     }
 
     const isGroup = await Group.exists({ _id: chatId });
@@ -152,6 +158,7 @@ export const getUnreadSummaryHandler = async (req, res) => {
     }));
 
     const summary = await summarizeMessages(formattedMessages);
+    await cacheService.set(cacheKey, summary, 300);
     return res.status(200).json({ success: true, summary });
   } catch (error) {
     console.error("Error in getUnreadSummaryHandler:", error);

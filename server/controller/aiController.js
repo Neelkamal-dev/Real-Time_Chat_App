@@ -11,6 +11,7 @@ import {
 } from "../services/aiService.js";
 import { generateEmbedding, cosineSimilarity } from "../services/embeddingService.js";
 import { cacheService } from "../services/cacheService.js";
+import { config } from "../config/gemini.js";
 
 // Helper to query message history of a chat (private or group)
 const fetchChatHistory = async (userId, chatId, limit = 10) => {
@@ -50,7 +51,7 @@ export const getSmartRepliesHandler = async (req, res) => {
       return res.json({ success: true, suggestions: cachedSuggestions });
     }
 
-    const history = await fetchChatHistory(userId, chatId, 10);
+    const history = await fetchChatHistory(userId, chatId, config.maxHistory);
     if (history.length === 0) {
       return res.json({ success: true, suggestions: ["Hey!", "How are you?", "Hello! 👋"] });
     }

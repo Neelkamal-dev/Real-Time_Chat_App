@@ -6,13 +6,14 @@ import { AuthContext } from "../../context/AuthContext";
 import toast from "react-hot-toast";
 
 const ChatContainer = () => {
-  const { authUser, onlineUsers } = useContext(AuthContext);
+  const { authUser, onlineUsers, socket } = useContext(AuthContext);
   const {
     selectedUser,
     setSelectedUser,
     messages,
     sendMessage,
     isMessagesLoading,
+    typingUsers,
   } = useContext(MessageContext);
 
   const [text, setText] = useState("");
@@ -20,11 +21,14 @@ const ChatContainer = () => {
   const fileInputRef = useRef(null);
   const scrollEnd = useRef(null);
 
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
+
   useEffect(() => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, imagePreview]);
+  }, [messages, imagePreview, typingUsers]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -47,9 +51,28 @@ const ChatContainer = () => {
     }
   };
 
+  const handleTextChange = (e) => {
+    setText(e.target.value);
+
+    if (!isTyping) {
+      setIsTyping(true);
+      socket?.emit("typing", { receiverId: selectedUser._id });
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socket?.emit("stopTyping", { receiverId: selectedUser._id });
+      setIsTyping(false);
+    }, 2000);
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (!text.trim() && !imagePreview) return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    socket?.emit("stopTyping", { receiverId: selectedUser._id });
+    setIsTyping(false);
 
     await sendMessage({
       text: text.trim(),
@@ -70,6 +93,7 @@ const ChatContainer = () => {
   }
 
   const isOnline = onlineUsers.includes(selectedUser._id);
+  const isUserTyping = typingUsers[selectedUser._id];
 
   return (
     <div className="h-full flex flex-col justify-between relative backdrop-blur-lg bg-black/10">
@@ -89,9 +113,13 @@ const ChatContainer = () => {
               }`}
             ></span>
           </p>
-          <p className="text-xs text-gray-400">
-            {isOnline ? "Online" : "Offline"}
-          </p>
+          <div className="text-xs">
+            {isUserTyping ? (
+              <span className="text-purple-400 font-medium animate-pulse">typing...</span>
+            ) : (
+              <span className="text-gray-400">{isOnline ? "Online" : "Offline"}</span>
+            )}
+          </div>
         </div>
         <img
           onClick={() => setSelectedUser(null)}
@@ -167,6 +195,25 @@ const ChatContainer = () => {
             );
           })
         )}
+
+        {/* Real-time typing bubble */}
+        {isUserTyping && (
+          <div className="flex gap-3 max-w-[80%] mr-auto items-center">
+            <img
+              src={selectedUser.profilePic || assets.avatar_icon}
+              alt="avatar"
+              className="w-8 h-8 rounded-full object-cover self-end"
+            />
+            <div className="bg-gray-700/40 rounded-2xl rounded-bl-none p-3 text-sm text-gray-300">
+              <span className="flex gap-1 items-center h-4 py-1">
+                <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="h-1.5 w-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </span>
+            </div>
+          </div>
+        )}
+
         <div ref={scrollEnd}></div>
       </div>
 
@@ -189,7 +236,7 @@ const ChatContainer = () => {
           <input
             type="text"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTextChange}
             placeholder="Send a message..."
             className="flex-1 text-sm p-3 bg-transparent border-none rounded-lg outline-none text-white placeholder-gray-400"
           />

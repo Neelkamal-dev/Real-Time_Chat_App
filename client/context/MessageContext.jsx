@@ -13,6 +13,7 @@ export const MessageProvider = ({ children }) => {
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [isMessagesLoading, setIsMessagesLoading] = useState(false);
   const [unseenMessages, setUnseenMessages] = useState({});
+  const [typingUsers, setTypingUsers] = useState({});
 
   const getUsers = async () => {
     setIsUsersLoading(true);
@@ -102,14 +103,26 @@ export const MessageProvider = ({ children }) => {
       }
     };
 
+    const handleTyping = ({ senderId }) => {
+      setTypingUsers((prev) => ({ ...prev, [senderId]: true }));
+    };
+
+    const handleStopTyping = ({ senderId }) => {
+      setTypingUsers((prev) => ({ ...prev, [senderId]: false }));
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("messages-seen", handleMessagesSeen);
     socket.on("message-seen", handleSingleMessageSeen);
+    socket.on("typing", handleTyping);
+    socket.on("stopTyping", handleStopTyping);
 
     return () => {
       socket.off("new-message", handleNewMessage);
       socket.off("messages-seen", handleMessagesSeen);
       socket.off("message-seen", handleSingleMessageSeen);
+      socket.off("typing", handleTyping);
+      socket.off("stopTyping", handleStopTyping);
     };
   }, [socket, selectedUser]);
 
@@ -120,6 +133,7 @@ export const MessageProvider = ({ children }) => {
     isUsersLoading,
     isMessagesLoading,
     unseenMessages,
+    typingUsers,
     setSelectedUser,
     getUsers,
     getMessages,

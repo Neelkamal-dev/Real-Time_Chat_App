@@ -1,8 +1,9 @@
-import { embeddingModel } from "../config/gemini.js";
+import { embeddingModel, config } from "../config/gemini.js";
 import { validateSearch } from "./responseValidator.js";
+import { logAIRequest } from "./aiLogger.js";
 
 /**
- * Generates a vector embedding for the given text query with validation retries.
+ * Generates a vector embedding for the given text query with validation retries and request logging.
  * @param {string} text 
  * @returns {Promise<number[]>} - The vector embedding array (or fallback zero-vector)
  */
@@ -14,6 +15,7 @@ export const generateEmbedding = async (text) => {
   const cleanText = text.replace(/\n/g, " ");
   let attempts = 0;
   const maxAttempts = 2;
+  const startTime = Date.now();
 
   while (attempts < maxAttempts) {
     try {
@@ -22,12 +24,27 @@ export const generateEmbedding = async (text) => {
         const values = result.embedding.values;
         const validation = validateSearch(values);
         if (validation.isValid) {
+          logAIRequest({
+            modelName: config.embeddingModelName,
+            responseTimeMs: Date.now() - startTime,
+            tokensCount: Math.ceil(cleanText.length / 4),
+            success: true,
+          });
           return validation.data;
         }
         console.warn(`Embedding validation failed (attempt ${attempts + 1}/2):`, validation.error);
       }
     } catch (error) {
       console.error(`Error generating vector embedding (attempt ${attempts + 1}/2):`, error.message);
+      if (attempts === maxAttempts - 1) {
+        logAIRequest({
+          modelName: config.embeddingModelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil(cleanText.length / 4),
+          success: false,
+          errorMessage: error.message,
+        });
+      }
     }
     attempts++;
   }

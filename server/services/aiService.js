@@ -1,12 +1,13 @@
-import { geminiModel } from "../config/gemini.js";
+import { geminiModel, config } from "../config/gemini.js";
 import { getSmartReplyPrompt } from "../prompts/replyPrompt.js";
 import { getRewritePrompt } from "../prompts/rewritePrompt.js";
 import { getSummaryPrompt } from "../prompts/summaryPrompt.js";
 import { getTranscriptionPrompt, getAudioSummaryPrompt } from "../prompts/transcriptionPrompt.js";
 import { validateSmartReply, validateRewrite, validateSummary } from "./responseValidator.js";
+import { logAIRequest } from "./aiLogger.js";
 
 /**
- * Generates 3-5 smart reply suggestions from conversation context with validation retries.
+ * Generates 3-5 smart reply suggestions from conversation context with validation retries and request logging.
  * @param {Array} messagesContext 
  * @returns {Promise<string[]>}
  */
@@ -14,6 +15,7 @@ export const generateSmartReplies = async (messagesContext) => {
   let attempts = 0;
   const maxAttempts = 2;
   const prompt = getSmartReplyPrompt(messagesContext);
+  const startTime = Date.now();
 
   while (attempts < maxAttempts) {
     try {
@@ -22,11 +24,26 @@ export const generateSmartReplies = async (messagesContext) => {
       
       const validation = validateSmartReply(rawText);
       if (validation.isValid) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil((prompt.length + rawText.length) / 4),
+          success: true,
+        });
         return validation.data;
       }
       console.warn(`Smart reply validation failed (attempt ${attempts + 1}/2):`, validation.error);
     } catch (error) {
       console.error(`Error in generateSmartReplies (attempt ${attempts + 1}/2):`, error.message);
+      if (attempts === maxAttempts - 1) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil(prompt.length / 4),
+          success: false,
+          errorMessage: error.message,
+        });
+      }
     }
     attempts++;
   }
@@ -36,7 +53,7 @@ export const generateSmartReplies = async (messagesContext) => {
 };
 
 /**
- * Rewrites draft messages with tone selection and validation retries.
+ * Rewrites draft messages with tone selection and validation retries and request logging.
  * @param {string} text 
  * @param {string} tone 
  * @returns {Promise<string>}
@@ -45,6 +62,7 @@ export const rewriteText = async (text, tone) => {
   let attempts = 0;
   const maxAttempts = 2;
   const prompt = getRewritePrompt(text, tone);
+  const startTime = Date.now();
 
   while (attempts < maxAttempts) {
     try {
@@ -53,11 +71,26 @@ export const rewriteText = async (text, tone) => {
 
       const validation = validateRewrite(rawText);
       if (validation.isValid) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil((prompt.length + rawText.length) / 4),
+          success: true,
+        });
         return validation.data;
       }
       console.warn(`Text rewrite validation failed (attempt ${attempts + 1}/2):`, validation.error);
     } catch (error) {
       console.error(`Error in rewriteText (attempt ${attempts + 1}/2):`, error.message);
+      if (attempts === maxAttempts - 1) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil(prompt.length / 4),
+          success: false,
+          errorMessage: error.message,
+        });
+      }
     }
     attempts++;
   }
@@ -67,7 +100,7 @@ export const rewriteText = async (text, tone) => {
 };
 
 /**
- * Summarizes lists of messages with validation retries.
+ * Summarizes lists of messages with validation retries and request logging.
  * @param {Array} messages 
  * @returns {Promise<string>}
  */
@@ -75,6 +108,7 @@ export const summarizeMessages = async (messages) => {
   let attempts = 0;
   const maxAttempts = 2;
   const prompt = getSummaryPrompt(messages);
+  const startTime = Date.now();
 
   while (attempts < maxAttempts) {
     try {
@@ -83,11 +117,26 @@ export const summarizeMessages = async (messages) => {
 
       const validation = validateSummary(rawText);
       if (validation.isValid) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil((prompt.length + rawText.length) / 4),
+          success: true,
+        });
         return validation.data;
       }
       console.warn(`Chat summary validation failed (attempt ${attempts + 1}/2):`, validation.error);
     } catch (error) {
       console.error(`Error in summarizeMessages (attempt ${attempts + 1}/2):`, error.message);
+      if (attempts === maxAttempts - 1) {
+        logAIRequest({
+          modelName: config.modelName,
+          responseTimeMs: Date.now() - startTime,
+          tokensCount: Math.ceil(prompt.length / 4),
+          success: false,
+          errorMessage: error.message,
+        });
+      }
     }
     attempts++;
   }
@@ -96,14 +145,15 @@ export const summarizeMessages = async (messages) => {
 };
 
 /**
- * Transcribes audio base64 buffers directly.
+ * Transcribes audio base64 buffers directly with logging.
  * @param {string} base64AudioData 
  * @param {string} mimeType 
  * @returns {Promise<string>}
  */
 export const transcribeVoice = async (base64AudioData, mimeType) => {
+  const startTime = Date.now();
+  const prompt = getTranscriptionPrompt();
   try {
-    const prompt = getTranscriptionPrompt();
     const audioPart = {
       inlineData: {
         data: base64AudioData.split(",")[1] || base64AudioData, // Strip data URI prefix if present
@@ -112,25 +162,56 @@ export const transcribeVoice = async (base64AudioData, mimeType) => {
     };
 
     const result = await geminiModel.generateContent([prompt, audioPart]);
-    return result.response.text().trim();
+    const rawText = result.response.text().trim();
+    
+    logAIRequest({
+      modelName: config.modelName,
+      responseTimeMs: Date.now() - startTime,
+      tokensCount: Math.ceil((prompt.length + rawText.length + base64AudioData.length) / 4),
+      success: true,
+    });
+    return rawText;
   } catch (error) {
     console.error("Error in transcribeVoice:", error);
+    logAIRequest({
+      modelName: config.modelName,
+      responseTimeMs: Date.now() - startTime,
+      tokensCount: Math.ceil((prompt.length + base64AudioData.length) / 4),
+      success: false,
+      errorMessage: error.message,
+    });
     throw error;
   }
 };
 
 /**
- * Summarizes long audio transcription texts.
+ * Summarizes long audio transcription texts with logging.
  * @param {string} transcript 
  * @returns {Promise<string>}
  */
 export const summarizeAudioTranscript = async (transcript) => {
+  const startTime = Date.now();
+  const prompt = getAudioSummaryPrompt(transcript);
   try {
-    const prompt = getAudioSummaryPrompt(transcript);
     const result = await geminiModel.generateContent(prompt);
-    return result.response.text().trim();
+    const rawText = result.response.text().trim();
+    
+    logAIRequest({
+      modelName: config.modelName,
+      responseTimeMs: Date.now() - startTime,
+      tokensCount: Math.ceil((prompt.length + rawText.length) / 4),
+      success: true,
+    });
+    return rawText;
   } catch (error) {
     console.error("Error in summarizeAudioTranscript:", error);
+    logAIRequest({
+      modelName: config.modelName,
+      responseTimeMs: Date.now() - startTime,
+      tokensCount: Math.ceil(prompt.length / 4),
+      success: false,
+      errorMessage: error.message,
+    });
     return "";
   }
 };

@@ -147,7 +147,7 @@ export const MessageProvider = ({ children }) => {
   const getSmartReplies = async (chatId) => {
     setIsSuggestionsLoading(true);
     try {
-      const { data } = await axios.get(`/api/ai/suggestions/${chatId}`);
+      const { data } = await axios.post("/api/ai/smart-reply", { chatId });
       if (data.success) {
         setSuggestions(data.suggestions || []);
       }
@@ -174,7 +174,7 @@ export const MessageProvider = ({ children }) => {
     setIsSummaryLoading(true);
     setUnreadSummary("");
     try {
-      const { data } = await axios.get(`/api/ai/unread-summary/${chatId}`);
+      const { data } = await axios.post("/api/ai/chat-summary", { chatId });
       if (data.success) {
         setUnreadSummary(data.summary || "");
       }
@@ -192,7 +192,7 @@ export const MessageProvider = ({ children }) => {
     }
     setIsSearchLoading(true);
     try {
-      const { data } = await axios.get(`/api/ai/search/${chatId}?query=${encodeURIComponent(query)}`);
+      const { data } = await axios.post("/api/ai/semantic-search", { chatId, query });
       if (data.success) {
         setSearchResults(data.matches || []);
       }

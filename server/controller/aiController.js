@@ -1,13 +1,19 @@
+import mongoose from "mongoose";
 import Message from "../models/message.js";
 import Group from "../models/Group.js";
 import User from "../models/User.js";
-import { generateSmartReplies, rewriteText, summarizeMessages } from "../services/aiService.js";
+import {
+  generateSmartReplies,
+  rewriteText,
+  summarizeMessages,
+  transcribeVoice,
+  summarizeAudioTranscript
+} from "../services/aiService.js";
 import { generateEmbedding, cosineSimilarity } from "../services/embeddingService.js";
 import { cacheService } from "../services/cacheService.js";
 
 // Helper to query message history of a chat (private or group)
 const fetchChatHistory = async (userId, chatId, limit = 10) => {
-  // Check if chatId belongs to a group
   const isGroup = await Group.exists({ _id: chatId });
 
   if (isGroup) {
@@ -16,7 +22,6 @@ const fetchChatHistory = async (userId, chatId, limit = 10) => {
       .limit(limit)
       .populate("senderId", "fullName");
   } else {
-    // Private chat between userId and chatId
     return await Message.find({
       $or: [
         { senderId: userId, receiverId: chatId },
@@ -29,14 +34,14 @@ const fetchChatHistory = async (userId, chatId, limit = 10) => {
   }
 };
 
-// Generate smart reply suggestions
+// POST /api/ai/smart-reply
 export const getSmartRepliesHandler = async (req, res) => {
   try {
-    const { chatId } = req.params;
+    const { chatId } = req.body;
     const userId = req.user._id;
 
-    if (!chatId) {
-      return res.status(400).json({ success: false, message: "Chat ID is required" });
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return res.status(400).json({ success: false, message: "A valid Chat ID (chatId) is required." });
     }
 
     const cacheKey = `suggestions:${chatId}:${userId}`;
@@ -45,46 +50,46 @@ export const getSmartRepliesHandler = async (req, res) => {
       return res.json({ success: true, suggestions: cachedSuggestions });
     }
 
-    // Fetch last 10 messages
     const history = await fetchChatHistory(userId, chatId, 10);
     if (history.length === 0) {
       return res.json({ success: true, suggestions: ["Hey!", "How are you?", "Hello! 👋"] });
     }
 
-    // Reverse history to chronological order
     const chronoHistory = [...history].reverse();
 
-    // Map messages for AI context
     const context = chronoHistory.map((msg) => ({
       sender: msg.senderId?._id?.toString() === userId.toString() ? "Me" : (msg.senderId?.fullName || "User"),
       text: msg.text || (msg.image ? "[Sent an image]" : "[Attachment]"),
       time: msg.createdAt,
     }));
 
-    // Check if the last message was sent by the current user. 
-    // If we sent the last message, smart replies are less relevant than if we received it.
     const lastMsg = chronoHistory[chronoHistory.length - 1];
     if (lastMsg.senderId?._id?.toString() === userId.toString()) {
       return res.json({ success: true, suggestions: [] });
     }
 
     const suggestions = await generateSmartReplies(context);
-    cacheService.set(cacheKey, suggestions, 30000); // Cache suggestions for 30s
+    cacheService.set(cacheKey, suggestions, 30000); 
 
-    res.json({ success: true, suggestions });
+    return res.status(200).json({ success: true, suggestions });
   } catch (error) {
     console.error("Error in getSmartRepliesHandler:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };
 
-// Rewrite message text in a specific tone
+// POST /api/ai/rewrite
 export const rewriteMessageHandler = async (req, res) => {
   try {
     const { text, tone } = req.body;
 
-    if (!text || !tone) {
-      return res.status(400).json({ success: false, message: "Text and tone are required." });
+    if (!text || typeof text !== "string" || !tone || typeof tone !== "string") {
+      return res.status(400).json({ success: false, message: "A valid text and tone are required." });
+    }
+
+    const allowedTones = ["Friendly", "Professional", "Polite", "Funny", "Romantic", "Short"];
+    if (!allowedTones.includes(tone)) {
+      return res.status(400).json({ success: false, message: `Invalid tone. Allowed: ${allowedTones.join(", ")}` });
     }
 
     const cacheKey = `rewrite:${tone}:${Buffer.from(text).toString("base64")}`;
@@ -94,32 +99,29 @@ export const rewriteMessageHandler = async (req, res) => {
     }
 
     const rewrittenText = await rewriteText(text, tone);
-    cacheService.set(cacheKey, rewrittenText, 60000); // Cache for 1 min
+    cacheService.set(cacheKey, rewrittenText, 60000); 
 
-    res.json({ success: true, rewrittenText });
+    return res.status(200).json({ success: true, rewrittenText });
   } catch (error) {
     console.error("Error in rewriteMessageHandler:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };
 
-// Summarize unread messages
+// POST /api/ai/chat-summary
 export const getUnreadSummaryHandler = async (req, res) => {
   try {
-    const { chatId } = req.params;
+    const { chatId } = req.body;
     const userId = req.user._id;
 
-    if (!chatId) {
-      return res.status(400).json({ success: false, message: "Chat ID is required." });
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return res.status(400).json({ success: false, message: "A valid Chat ID (chatId) is required." });
     }
 
     const isGroup = await Group.exists({ _id: chatId });
     let unreadMessages = [];
 
     if (isGroup) {
-      // Group unread - messages created after user joined or check simple unseen
-      // For groups we pull messages where sender is not us and they are created recently
-      // To keep it simple: fetch last 30 messages in group that aren't sent by me
       unreadMessages = await Message.find({
         groupId: chatId,
         senderId: { $ne: userId }
@@ -128,7 +130,6 @@ export const getUnreadSummaryHandler = async (req, res) => {
         .limit(30)
         .populate("senderId", "fullName");
     } else {
-      // Private chat unread - messages from chatId to userId that are not seen
       unreadMessages = await Message.find({
         senderId: chatId,
         receiverId: userId,
@@ -139,10 +140,9 @@ export const getUnreadSummaryHandler = async (req, res) => {
     }
 
     if (unreadMessages.length === 0) {
-      return res.json({ success: true, summary: "All caught up! No unread messages." });
+      return res.status(200).json({ success: true, summary: "All caught up! No unread messages." });
     }
 
-    // Chrono order
     const chronoUnread = [...unreadMessages].reverse();
 
     const formattedMessages = chronoUnread.map((m) => ({
@@ -151,28 +151,25 @@ export const getUnreadSummaryHandler = async (req, res) => {
     }));
 
     const summary = await summarizeMessages(formattedMessages);
-    res.json({ success: true, summary });
+    return res.status(200).json({ success: true, summary });
   } catch (error) {
     console.error("Error in getUnreadSummaryHandler:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };
 
-// Semantic chat logs search
+// POST /api/ai/semantic-search
 export const semanticSearchHandler = async (req, res) => {
   try {
-    const { chatId } = req.params;
-    const { query } = req.query;
+    const { chatId, query } = req.body;
     const userId = req.user._id;
 
-    if (!chatId || !query) {
-      return res.status(400).json({ success: false, message: "Chat ID and query are required." });
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId) || !query || typeof query !== "string" || !query.trim()) {
+      return res.status(400).json({ success: false, message: "A valid Chat ID (chatId) and non-empty query are required." });
     }
 
-    // 1. Generate query embedding
     const queryVector = await generateEmbedding(query);
 
-    // 2. Fetch all messages in the conversation
     const isGroup = await Group.exists({ _id: chatId });
     let messages = [];
 
@@ -187,13 +184,11 @@ export const semanticSearchHandler = async (req, res) => {
       }).populate("senderId", "fullName profilePic");
     }
 
-    // 3. Score matching using cosine similarity (and lazy-embed empty vector slots)
     const scoredMatches = [];
 
     for (const msg of messages) {
-      if (!msg.text) continue; // Skip audio-only/image-only without text
+      if (!msg.text) continue;
 
-      // Lazy-generate embedding vector for existing database logs missing them
       if (!msg.embedding || msg.embedding.length === 0) {
         try {
           msg.embedding = await generateEmbedding(msg.text);
@@ -206,7 +201,6 @@ export const semanticSearchHandler = async (req, res) => {
 
       const similarity = cosineSimilarity(queryVector, msg.embedding);
       
-      // Keep results with moderate similarity match scores (> 0.40)
       if (similarity > 0.40) {
         scoredMatches.push({
           message: {
@@ -224,12 +218,38 @@ export const semanticSearchHandler = async (req, res) => {
       }
     }
 
-    // 4. Sort descending
     scoredMatches.sort((a, b) => b.score - a.score);
 
-    res.json({ success: true, matches: scoredMatches.slice(0, 10) });
+    return res.status(200).json({ success: true, matches: scoredMatches.slice(0, 10) });
   } catch (error) {
     console.error("Error in semanticSearchHandler:", error);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
+  }
+};
+
+// POST /api/ai/transcribe
+export const transcribeAudioHandler = async (req, res) => {
+  try {
+    const { audio, mimeType } = req.body;
+
+    if (!audio || typeof audio !== "string") {
+      return res.status(400).json({ success: false, message: "Base64 audio data string (audio) is required." });
+    }
+
+    const transcription = await transcribeVoice(audio, mimeType);
+    
+    let audioSummary = "";
+    if (transcription && transcription.length > 100) {
+      audioSummary = await summarizeAudioTranscript(transcription);
+    }
+
+    return res.status(200).json({
+      success: true,
+      transcription,
+      audioSummary
+    });
+  } catch (error) {
+    console.error("Error in transcribeAudioHandler:", error);
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };

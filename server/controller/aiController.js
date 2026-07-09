@@ -242,10 +242,10 @@ export const semanticSearchHandler = async (req, res) => {
   }
 };
 
-// POST /api/ai/transcribe (Upgraded to SSE streaming)
+// POST /api/ai/transcribe (Upgraded to SSE streaming with duration-based summaries)
 export const transcribeAudioHandler = async (req, res) => {
   try {
-    const { audio, mimeType } = req.body;
+    const { audio, mimeType, duration } = req.body;
 
     if (!audio || typeof audio !== "string") {
       return res.status(400).json({ success: false, message: "Base64 audio data string (audio) is required." });
@@ -266,8 +266,9 @@ export const transcribeAudioHandler = async (req, res) => {
         res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
       }
 
+      // Generate summary only if duration exceeds 60 seconds
       let audioSummary = "";
-      if (fullTranscription && fullTranscription.length > 100) {
+      if (fullTranscription && duration && Number(duration) > 60) {
         audioSummary = await summarizeAudioTranscript(fullTranscription);
       }
 
@@ -282,6 +283,50 @@ export const transcribeAudioHandler = async (req, res) => {
     }
   } catch (error) {
     console.error("Error in transcribeAudioHandler:", error);
+    return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
+  }
+};
+
+// PUT /api/ai/transcription/:messageId (Edit transcript inline, regenerate embedding, update vector index)
+export const updateMessageTranscriptionHandler = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { transcription } = req.body;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(messageId) || !transcription || typeof transcription !== "string" || !transcription.trim()) {
+      return res.status(400).json({ success: false, message: "A valid message ID and transcription text are required." });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ success: false, message: "Message not found." });
+    }
+
+    // Verify requesting user is the message sender
+    if (message.senderId.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: "Not authorized to update this transcription." });
+    }
+
+    message.transcription = transcription.trim();
+
+    // Regenerate and update search vectors in background
+    try {
+      const newEmbedding = await generateEmbedding(message.transcription);
+      await vectorStore.upsert(message._id, newEmbedding);
+    } catch (err) {
+      console.error("Failed to update embedding inside transcription save:", err.message);
+    }
+
+    await message.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Transcription updated successfully.",
+      transcription: message.transcription,
+    });
+  } catch (error) {
+    console.error("Error in updateMessageTranscriptionHandler:", error);
     return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };

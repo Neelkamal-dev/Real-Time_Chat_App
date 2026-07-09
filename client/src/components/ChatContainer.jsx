@@ -29,6 +29,7 @@ const ChatContainer = () => {
     rewriteMessage,
     getUnreadSummary,
     transcribeAudio,
+    updateMessageTranscript,
     performSemanticSearch,
     setIsSemanticSearch,
   } = useContext(MessageContext);
@@ -48,6 +49,12 @@ const ChatContainer = () => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const recordingStartTimeRef = useRef(null);
+
+  // Transcription controls states
+  const [editingTranscriptIds, setEditingTranscriptIds] = useState({});
+  const [editTranscriptTexts, setEditTranscriptTexts] = useState({});
+  const [expandedSummaryIds, setExpandedSummaryIds] = useState({});
 
   // Live streaming voice transcription
   const [streamingTranscript, setStreamingTranscript] = useState("");
@@ -208,6 +215,7 @@ const ChatContainer = () => {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      recordingStartTimeRef.current = Date.now();
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -216,6 +224,9 @@ const ChatContainer = () => {
       };
 
       mediaRecorder.onstop = async () => {
+        const durationMs = Date.now() - recordingStartTimeRef.current;
+        const durationSeconds = Math.round(durationMs / 1000);
+
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
@@ -249,13 +260,14 @@ const ChatContainer = () => {
               transcriptionAbortControllerRef.current.signal
             );
 
-            // Send voice message with compiled live transcription + summary metadata
+            // Send voice message with compiled live transcription + summary + duration
             if (selectedUser) {
               await sendMessage({
                 audio: base64Audio,
                 mimeType: "audio/webm",
                 transcription: compiledTranscription || "[Speech Transcribed]",
                 audioSummary: compiledSummary,
+                duration: durationSeconds,
               });
             } else if (selectedGroup) {
               await sendGroupMessage({
@@ -263,6 +275,7 @@ const ChatContainer = () => {
                 mimeType: "audio/webm",
                 transcription: compiledTranscription || "[Speech Transcribed]",
                 audioSummary: compiledSummary,
+                duration: durationSeconds,
               });
             }
             toast.success("Voice message sent with transcript!");
@@ -495,6 +508,8 @@ const ChatContainer = () => {
             const senderName = typeof sender === "object" ? sender.fullName : (isSentByMe ? authUser.fullName : selectedUser?.fullName);
             const senderPic = typeof sender === "object" ? sender.profilePic : (isSentByMe ? authUser.profilePic : selectedUser?.profilePic);
 
+            const isEditingTranscript = editingTranscriptIds[message._id];
+
             return (
               <div
                 key={message._id}
@@ -533,16 +548,101 @@ const ChatContainer = () => {
                       
                       {/* Audio Note player support */}
                       {message.audioUrl && (
-                        <div className="flex flex-col gap-2 min-w-[210px]">
+                        <div className="flex flex-col gap-2 min-w-[220px]">
                           <audio src={message.audioUrl} controls className="h-8 max-w-full rounded-md shadow-inner bg-slate-100 dark:bg-slate-800 filter brightness-95" />
+                          
                           {message.transcription && (
-                            <div className="text-[11px] border-t border-slate-200 dark:border-slate-800 pt-1.5 mt-0.5">
-                              <span className="font-semibold text-blue-500 block mb-0.5">Transcribed Text:</span>
-                              <p className="italic text-slate-600 dark:text-slate-350">"{message.transcription}"</p>
-                              {message.audioSummary && (
-                                <div className="mt-1 border-t border-dotted border-slate-200 dark:border-slate-800/80 pt-1">
-                                  <span className="font-bold text-[9px] text-slate-400 block mb-0.5">AI Audio Summary:</span>
-                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{message.audioSummary}</p>
+                            <div className="mt-2 text-xs border-t border-slate-200/50 dark:border-slate-850/50 pt-2 flex flex-col gap-1.5">
+                              {isEditingTranscript ? (
+                                /* Transcript Editor Input block */
+                                <div className="flex flex-col gap-2 bg-white/5 dark:bg-black/10 p-2 rounded-xl border border-slate-200/30 dark:border-gray-800">
+                                  <textarea
+                                    value={editTranscriptTexts[message._id] ?? message.transcription}
+                                    onChange={(e) => setEditTranscriptTexts(prev => ({ ...prev, [message._id]: e.target.value }))}
+                                    className="text-[11px] p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-gray-700 text-slate-800 dark:text-white rounded-lg focus:ring-1 focus:ring-blue-500 outline-none resize-none leading-relaxed"
+                                    rows={3}
+                                  />
+                                  <div className="flex justify-end gap-1.5 text-[9px] font-bold">
+                                    <button
+                                      onClick={() => setEditingTranscriptIds(prev => ({ ...prev, [message._id]: false }))}
+                                      className="px-2 py-1 text-slate-400 hover:text-slate-650 rounded"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        await updateMessageTranscript(message._id, editTranscriptTexts[message._id] ?? message.transcription);
+                                        setEditingTranscriptIds(prev => ({ ...prev, [message._id]: false }));
+                                      }}
+                                      className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm"
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                /* Transcript display and controls */
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex justify-between items-center border-b border-dotted border-slate-200/30 dark:border-slate-800 pb-1 mb-1">
+                                    <span className="font-semibold text-blue-500 text-[10px] uppercase tracking-wider">Transcribed Text:</span>
+                                    <div className="flex gap-2 text-[9px] font-bold text-slate-400">
+                                      {isSentByMe && (
+                                        <button
+                                          onClick={() => {
+                                            setEditTranscriptTexts(prev => ({ ...prev, [message._id]: message.transcription }));
+                                            setEditingTranscriptIds(prev => ({ ...prev, [message._id]: true }));
+                                          }}
+                                          className="hover:text-blue-500 transition-colors"
+                                          title="Edit Transcription text"
+                                        >
+                                          ✏️ Edit
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(message.transcription);
+                                          toast.success("Transcript copied!");
+                                        }}
+                                        className="hover:text-blue-500 transition-colors"
+                                        title="Copy text"
+                                      >
+                                        📋 Copy
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setIsSemanticSearch(true);
+                                          setMsgSearchQuery(message.transcription);
+                                          performSemanticSearch(activeId, message.transcription);
+                                          setIsSearchingMsg(true);
+                                        }}
+                                        className="hover:text-blue-500 transition-colors"
+                                        title="Search similar files"
+                                      >
+                                        🔍 Search Similar
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <p className="italic leading-relaxed font-light text-slate-700 dark:text-gray-300">"{message.transcription}"</p>
+
+                                  {/* View Summary Toggle Accordion */}
+                                  {message.audioSummary && (
+                                    <div className="mt-1 border-t border-dotted border-slate-200/30 dark:border-slate-800/80 pt-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedSummaryIds(prev => ({ ...prev, [message._id]: !prev[message._id] }))}
+                                        className="text-[9px] font-bold text-slate-400 hover:text-blue-500 uppercase tracking-wider flex items-center gap-1 transition-colors"
+                                      >
+                                        <span>🤖 AI Audio Summary</span>
+                                        <span>{expandedSummaryIds[message._id] ? "▲" : "▼"}</span>
+                                      </button>
+                                      {expandedSummaryIds[message._id] && (
+                                        <p className="text-[10px] text-slate-550 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-black/10 p-2 rounded-lg leading-relaxed animate-in fade-in duration-200">
+                                          {message.audioSummary}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -659,7 +759,7 @@ const ChatContainer = () => {
           <img src={imagePreview} alt="preview" className="h-16 w-16 object-cover rounded" />
           <button
             onClick={handleRemoveImage}
-            className="bg-red-500 hover:bg-red-600 text-white rounded-full p-1 cursor-pointer text-xs"
+            className="bg-red-500 hover:bg-red-650 text-white rounded-full p-1 cursor-pointer text-xs"
           >
             ✕
           </button>

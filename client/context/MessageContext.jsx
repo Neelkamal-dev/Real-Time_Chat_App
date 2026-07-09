@@ -260,6 +260,25 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
+  const updateMessageTranscript = async (messageId, newTranscription) => {
+    try {
+      const { data } = await axios.put(`/api/ai/transcription/${messageId}`, {
+        transcription: newTranscription,
+      });
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg._id === messageId ? { ...msg, transcription: data.transcription } : msg
+          )
+        );
+        toast.success("Transcript updated successfully!");
+      }
+    } catch (error) {
+      console.error("Error updating transcription:", error);
+      toast.error("Failed to update transcription.");
+    }
+  };
+
   const performSemanticSearch = async (chatId, query) => {
     if (!query || !query.trim()) {
       setSearchResults([]);
@@ -429,6 +448,8 @@ export const MessageProvider = ({ children }) => {
     setIsSemanticSearch,
     setMessages,
     setUnseenMessages,
+    transcribeAudio,
+    updateMessageTranscript,
   };
 
   // We need to implement a frontend method reactToMessage that hits the PUT route in case components call it!

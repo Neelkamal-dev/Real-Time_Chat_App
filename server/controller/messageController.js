@@ -74,7 +74,7 @@ export const markMessageAsSeen = async (req,res)=>{
 //send message to selected user
 export const sendMessage = async (req,res)=>{
   try { 
-    const {image,text,audio,mimeType} = req.body;
+    const {image,text,audio,mimeType,duration} = req.body;
     const receiverId = req.params.id;
     const senderId = req.user._id;
     
@@ -93,7 +93,7 @@ export const sendMessage = async (req,res)=>{
         const uploadedAudio = await cloudinary.uploader.upload(audio, { resource_type: "video" });
         audioUrl = uploadedAudio.secure_url;
         transcription = await transcribeVoice(audio, mimeType);
-        if (transcription && transcription.length > 100) {
+        if (transcription && duration && Number(duration) > 60) {
           audioSummary = await summarizeAudioTranscript(transcription);
         }
       } catch (err) {

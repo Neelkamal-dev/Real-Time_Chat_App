@@ -5,6 +5,7 @@ import {
   getUnreadSummaryHandler,
   semanticSearchHandler,
   transcribeAudioHandler,
+  updateMessageTranscriptionHandler,
 } from "../controller/aiController.js";
 import { protectRoute } from "../middleware/auth.js";
 import { aiRateLimiter } from "../middleware/rateLimiter.js";
@@ -25,5 +26,8 @@ aiRouter.post("/semantic-search", protectRoute, aiRateLimiter(30, 60000), semant
 
 // Standalone AI voice note transcription endpoint - rate limited to 30 requests/minute
 aiRouter.post("/transcribe", protectRoute, aiRateLimiter(30, 60000), transcribeAudioHandler);
+
+// AI transcript edit and vector update endpoint
+aiRouter.put("/transcription/:messageId", protectRoute, updateMessageTranscriptionHandler);
 
 export default aiRouter;

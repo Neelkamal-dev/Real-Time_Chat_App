@@ -88,7 +88,7 @@ export const getGroupMessages = async (req, res) => {
 // Send a message to a group
 export const sendGroupMessage = async (req, res) => {
   try {
-    const { text, image, audio, mimeType } = req.body;
+    const { text, image, audio, mimeType, duration } = req.body;
     const { groupId } = req.params;
     const senderId = req.user._id;
 
@@ -117,7 +117,7 @@ export const sendGroupMessage = async (req, res) => {
         const uploadedAudio = await cloudinary.uploader.upload(audio, { resource_type: "video" });
         audioUrl = uploadedAudio.secure_url;
         transcription = await transcribeVoice(audio, mimeType);
-        if (transcription && transcription.length > 100) {
+        if (transcription && duration && Number(duration) > 60) {
           audioSummary = await summarizeAudioTranscript(transcription);
         }
       } catch (err) {

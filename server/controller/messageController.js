@@ -35,6 +35,13 @@ export const getMessages = async (req,res)=>{
     const messages = await Message.find({$or : [{senderId : selectedUserId,receiverId : myId},{senderId : myId,receiverId : selectedUserId}]})
     // update seen status of messages
     await Message.updateMany({senderId : selectedUserId,receiverId : myId},{seen:true})
+
+    // Notify the sender that all their messages are seen
+    const senderSocketId = userSocketMap[selectedUserId];
+    if(senderSocketId){
+      io.to(senderSocketId).emit("messages-seen", { viewerId: myId });
+    }
+
     res.json({success:true,messages})
   }catch(error){
     console.log(error.message);
@@ -46,7 +53,13 @@ export const getMessages = async (req,res)=>{
 export const markMessageAsSeen = async (req,res)=>{
   try {
     const {id:messageId} = req.params;  
-    await Message.findByIdAndUpdate(messageId,{seen:true})
+    const updatedMessage = await Message.findByIdAndUpdate(messageId,{seen:true},{new:true});
+    if(updatedMessage){
+      const senderSocketId = userSocketMap[updatedMessage.senderId];
+      if(senderSocketId){
+        io.to(senderSocketId).emit("message-seen", { messageId: updatedMessage._id, receiverId: updatedMessage.receiverId });
+      }
+    }
     res.json({success:true,message:"Message marked as seen"})
   }catch(error){
     console.log(error.message);

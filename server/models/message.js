@@ -12,7 +12,20 @@ const messageSchema = new mongoose.Schema({
         userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
         emoji: { type: String, required: true }
       }
-    ]
+    ],
+    embedding: {
+      type: [Number],
+      default: []
+    },
+    audioUrl: {
+      type: String
+    },
+    transcription: {
+      type: String
+    },
+    audioSummary: {
+      type: String
+    }
 }, { timestamps: true });   
 
 

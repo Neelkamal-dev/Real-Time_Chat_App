@@ -3,6 +3,7 @@ import assets from "../assets/assets";
 import { MessageContext } from "../../context/MessageContext";
 import { AuthContext } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { formatMessageTime } from "../library/utils";
 
 const RightSidebar = () => {
   const navigate = useNavigate();
@@ -11,9 +12,43 @@ const RightSidebar = () => {
 
   if (!selectedUser && !selectedGroup) return null;
 
-  if (selectedGroup) {
-    const sharedImages = messages.filter((m) => m.image).map((m) => m.image);
+  const sharedImages = messages.filter((m) => m.image).map((m) => m.image);
+  const voiceNotes = messages.filter((m) => m.audioUrl);
 
+  const renderVoiceNotesSection = () => (
+    <div className="px-5 text-xs mt-4">
+      <p className="font-semibold mb-2 uppercase tracking-wider text-gray-500 dark:text-gray-400">
+        Voice Transcripts ({voiceNotes.length})
+      </p>
+      {voiceNotes.length === 0 ? (
+        <p className="text-gray-500 dark:text-gray-400 italic">No voice notes shared yet.</p>
+      ) : (
+        <div className="space-y-2 max-h-[160px] overflow-y-scroll pr-1">
+          {voiceNotes.map((msg) => (
+            <div
+              key={msg._id}
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-black/10 flex flex-col gap-1 shadow-sm"
+            >
+              <div className="flex justify-between items-center text-[9px] font-bold text-blue-600 dark:text-blue-400">
+                <span>{msg.senderId?.fullName || (msg.senderId === selectedUser?._id ? selectedUser.fullName : "Me")}</span>
+                <span className="text-slate-400 font-light">{formatMessageTime(msg.createdAt)}</span>
+              </div>
+              <p className="text-[10px] text-slate-700 dark:text-gray-300 italic line-clamp-2">
+                "{msg.transcription || "[Empty Transcript]"}"
+              </p>
+              {msg.audioSummary && (
+                <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium border-t border-slate-100 dark:border-slate-800/50 pt-1 mt-0.5">
+                  AI Summary: {msg.audioSummary}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  if (selectedGroup) {
     return (
       <div className="bg-[#8185B2]/10 text-slate-800 dark:text-white w-full relative overflow-y-scroll max-md:hidden h-full">
         {/* Group Profile Section */}
@@ -37,7 +72,7 @@ const RightSidebar = () => {
           <p className="font-semibold mb-2 uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Members ({selectedGroup.members?.length || 0})
           </p>
-          <div className="max-h-[200px] overflow-y-scroll space-y-2">
+          <div className="max-h-[140px] overflow-y-scroll space-y-2">
             {selectedGroup.members?.map((member) => {
               const isMemberOnline = onlineUsers.includes(member._id);
               return (
@@ -49,7 +84,7 @@ const RightSidebar = () => {
                       className="w-7 h-7 rounded-full object-cover shadow-sm"
                     />
                     <span
-                      className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white dark:border-[#130f26] ${
+                      className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-white dark:border-[#130f26] ${
                         isMemberOnline ? "bg-green-500" : "bg-gray-500"
                       }`}
                     ></span>
@@ -72,14 +107,14 @@ const RightSidebar = () => {
         <hr className="border-slate-200 dark:border-[#ffffff50] my-4" />
 
         {/* Media Section */}
-        <div className="px-5 text-xs pb-20">
+        <div className="px-5 text-xs">
           <p className="font-semibold mb-2 uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Shared Media
           </p>
           {sharedImages.length === 0 ? (
             <p className="text-gray-500 dark:text-gray-400 italic">No shared photos.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-2 opacity-90">
+            <div className="grid grid-cols-2 gap-2 opacity-90 max-h-[140px] overflow-y-scroll">
               {sharedImages.map((url, index) => (
                 <div
                   key={index}
@@ -93,13 +128,21 @@ const RightSidebar = () => {
           )}
         </div>
 
+        {/* Divider */}
+        <hr className="border-slate-200 dark:border-[#ffffff50] my-4" />
+
+        {/* Voice Transcripts */}
+        {renderVoiceNotesSection()}
+
+        <div className="h-20"></div>
+
         {/* Logout Button */}
         <button
           onClick={() => {
             logout();
             navigate("/login");
           }}
-          className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-400 to-violet-600 text-white border-none text-sm font-light py-2 px-20 rounded-full cursor-pointer hover:opacity-90 active:scale-95 transition-all shadow-md"
+          className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white border-none text-sm font-semibold py-2.5 px-20 rounded-xl cursor-pointer hover:bg-blue-700 active:scale-95 transition-all shadow-md shadow-blue-500/10"
         >
           Logout
         </button>
@@ -109,7 +152,6 @@ const RightSidebar = () => {
 
   // Render direct chat user info
   const isOnline = onlineUsers.includes(selectedUser._id);
-  const sharedImages = messages.filter((m) => m.image).map((m) => m.image);
 
   return (
     <div className="bg-[#8185B2]/10 text-slate-800 dark:text-white w-full relative overflow-y-scroll max-md:hidden h-full">
@@ -136,11 +178,11 @@ const RightSidebar = () => {
 
       {/* Media Section */}
       <div className="px-5 text-xs">
-        <p className="font-semibold mb-2">Media Share</p>
+        <p className="font-semibold mb-2 uppercase tracking-wider text-gray-500 dark:text-gray-400">Media Share</p>
         {sharedImages.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400 italic">No media shared yet.</p>
         ) : (
-          <div className="max-h-[250px] overflow-y-scroll grid grid-cols-2 gap-2 opacity-90 pb-20">
+          <div className="max-h-[160px] overflow-y-scroll grid grid-cols-2 gap-2 opacity-90 pb-2">
             {sharedImages.map((url, index) => (
               <div
                 key={index}
@@ -154,13 +196,21 @@ const RightSidebar = () => {
         )}
       </div>
 
+      {/* Divider */}
+      <hr className="border-slate-200 dark:border-[#ffffff50] my-4" />
+
+      {/* Voice Transcripts */}
+      {renderVoiceNotesSection()}
+
+      <div className="h-20"></div>
+
       {/* Logout Button */}
       <button
         onClick={() => {
           logout();
           navigate("/login");
         }}
-        className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-400 to-violet-600 text-white border-none text-sm font-light py-2 px-20 rounded-full cursor-pointer hover:opacity-90 active:scale-95 transition-all shadow-md"
+        className="absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white border-none text-sm font-semibold py-2.5 px-20 rounded-xl cursor-pointer hover:bg-blue-700 active:scale-95 transition-all shadow-md shadow-blue-500/10"
       >
         Logout
       </button>

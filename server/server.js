@@ -6,6 +6,7 @@ import { connectDB } from "./lib/db.js";
 import userRouter from "./routes/userRoutes.js";
 import messageRouter from "./routes/messageRoutes.js";
 import groupRouter from "./routes/groupRoutes.js";
+import aiRouter from "./routes/aiRoutes.js";
 import { Server } from "socket.io";
 
 dotenv.config(); // load .env variables
@@ -68,6 +69,7 @@ app.use("/api/status", (req, res) => {
 app.use("/api/auth",userRouter);
 app.use("/api/messages",messageRouter);
 app.use("/api/groups",groupRouter);
+app.use("/api/ai",aiRouter);
 
 // Connect to DB before starting server
 connectDB().then(() => {

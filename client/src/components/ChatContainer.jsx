@@ -17,7 +17,19 @@ const ChatContainer = () => {
     selectedGroup,
     setSelectedGroup,
     sendGroupMessage,
-    reactToMessage,
+    unseenMessages,
+    // AI Feature variables & methods
+    suggestions,
+    isSuggestionsLoading,
+    unreadSummary,
+    isSummaryLoading,
+    searchResults,
+    isSearchLoading,
+    isSemanticSearch,
+    rewriteMessage,
+    getUnreadSummary,
+    performSemanticSearch,
+    setIsSemanticSearch,
   } = useContext(MessageContext);
 
   const [text, setText] = useState("");
@@ -31,11 +43,25 @@ const ChatContainer = () => {
   const [msgSearchQuery, setMsgSearchQuery] = useState("");
   const [isSearchingMsg, setIsSearchingMsg] = useState(false);
 
+  // Voice Note states
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  // Rewrite Tone states
+  const [showRewritePopover, setShowRewritePopover] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewrittenPreview, setRewrittenPreview] = useState("");
+  const [rewriteTone, setRewriteTone] = useState("");
+
+  // Unread summary state
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+
   useEffect(() => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, imagePreview, typingUsers]);
+  }, [messages, imagePreview, typingUsers, suggestions]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -61,7 +87,6 @@ const ChatContainer = () => {
   const handleTextChange = (e) => {
     setText(e.target.value);
 
-    // Only direct messaging supports typing indicators
     if (selectedUser) {
       if (!isTyping) {
         setIsTyping(true);
@@ -100,11 +125,107 @@ const ChatContainer = () => {
     handleRemoveImage();
   };
 
+  // AI Tone Rewrite approve
+  const handleRewriteSelect = async (tone) => {
+    if (!text.trim()) {
+      toast.error("Please type some text first to rewrite!");
+      return;
+    }
+    setIsRewriting(true);
+    setRewriteTone(tone);
+    setShowRewritePopover(false);
+    try {
+      const rewritten = await rewriteMessage(text, tone);
+      setRewrittenPreview(rewritten);
+    } catch (err) {
+      toast.error("Rewrite failed.");
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
+  // Voice Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          
+          const loadingToast = toast.loading("Uploading and transcribing voice note... 🎙️");
+          try {
+            if (selectedUser) {
+              await sendMessage({
+                audio: base64Audio,
+                mimeType: "audio/webm",
+              });
+            } else if (selectedGroup) {
+              await sendGroupMessage({
+                audio: base64Audio,
+                mimeType: "audio/webm",
+              });
+            }
+            toast.success("Voice note sent successfully!", { id: loadingToast });
+          } catch (err) {
+            toast.error("Failed to send voice note.", { id: loadingToast });
+          }
+        };
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Mic recording error:", err);
+      toast.error("Could not access microphone.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // Semantic RAG scrolling to target message bubble location
+  const handleScrollToMessage = (messageId) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-4", "ring-yellow-400", "scale-102", "transition-all", "duration-500");
+      setTimeout(() => {
+        el.classList.remove("ring-4", "ring-yellow-400", "scale-102");
+      }, 3000);
+    }
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setMsgSearchQuery(val);
+    if (isSemanticSearch) {
+      const activeId = selectedUser?._id || selectedGroup?._id;
+      performSemanticSearch(activeId, val);
+    }
+  };
+
   if (!selectedUser && !selectedGroup) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-5 bg-white/5 dark:bg-black/10 text-white">
-        <img src={assets.logo_icon} alt="logo" className="max-w-16 animate-bounce" />
-        <p className="text-white text-lg font-medium">Chat anytime, anywhere</p>
+      <div className="h-full flex flex-col items-center justify-center gap-5 bg-white/5 dark:bg-black/10 text-slate-800 dark:text-white">
+        <img src={assets.logo_icon} alt="logo" className="max-w-16 animate-bounce filter dark:brightness-100 brightness-0 opacity-80" />
+        <p className="text-slate-400 dark:text-slate-400 text-lg font-light tracking-wide">Select a chat to begin messaging</p>
       </div>
     );
   }
@@ -114,9 +235,10 @@ const ChatContainer = () => {
 
   const chatName = selectedUser ? selectedUser.fullName : selectedGroup.name;
   const chatAvatar = selectedUser ? (selectedUser.profilePic || assets.avatar_icon) : null;
+  const activeId = selectedUser?._id || selectedGroup?._id;
 
   const filteredMessages = messages.filter((message) => {
-    if (!msgSearchQuery.trim()) return true;
+    if (isSemanticSearch || !msgSearchQuery.trim()) return true;
     return message.text && message.text.toLowerCase().includes(msgSearchQuery.toLowerCase());
   });
 
@@ -128,15 +250,15 @@ const ChatContainer = () => {
           <img
             src={chatAvatar}
             alt={chatName}
-            className="w-9 h-9 object-cover rounded-full"
+            className="w-9 h-9 object-cover rounded-full shadow-sm"
           />
         ) : (
-          <div className="w-9 h-9 rounded-full bg-violet-600/20 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-sm border border-violet-500/30 uppercase">
+          <div className="w-9 h-9 rounded-full bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 uppercase">
             {chatName.substring(0, 2)}
           </div>
         )}
         <div className="flex-1">
-          <p className="text-lg font-medium flex items-center gap-2 text-slate-800 dark:text-white">
+          <p className="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-white">
             {chatName}
             {selectedUser && (
               <span
@@ -149,7 +271,7 @@ const ChatContainer = () => {
           <div className="text-xs">
             {selectedUser ? (
               isUserTyping ? (
-                <span className="text-purple-500 dark:text-purple-400 font-medium animate-pulse">typing...</span>
+                <span className="text-blue-600 dark:text-blue-400 font-medium animate-pulse">typing...</span>
               ) : (
                 <span className="text-slate-400 dark:text-gray-400">{isOnline ? "Online" : "Offline"}</span>
               )
@@ -159,21 +281,54 @@ const ChatContainer = () => {
           </div>
         </div>
 
+        {/* AI Unread summary Badge */}
+        {selectedUser && unseenMessages[selectedUser._id] > 0 && (
+          <button
+            onClick={() => {
+              getUnreadSummary(selectedUser._id);
+              setShowSummaryModal(true);
+            }}
+            className="cursor-pointer flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 text-[10px] text-blue-600 dark:text-blue-400 font-bold px-2.5 py-1.5 rounded-full transition-all border border-blue-200/50"
+            title="Summarize unseen chat history"
+          >
+            🤖 AI Summary
+          </button>
+        )}
+
         {/* Message Search Bar */}
         <div className="flex items-center gap-2">
           {isSearchingMsg && (
-            <input
-              type="text"
-              value={msgSearchQuery}
-              onChange={(e) => setMsgSearchQuery(e.target.value)}
-              placeholder="Search in chat..."
-              className="bg-slate-200/50 dark:bg-gray-800/40 text-slate-800 dark:text-white text-xs px-3 py-1.5 rounded-full border border-slate-300 dark:border-gray-700/50 outline-none w-28 sm:w-40 transition-all bg-transparent"
-            />
+            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-gray-800/40 px-3 py-1 rounded-full border border-slate-300 dark:border-gray-700/50">
+              <input
+                type="text"
+                value={msgSearchQuery}
+                onChange={handleSearchChange}
+                placeholder={isSemanticSearch ? "Semantic search..." : "Keyword search..."}
+                className="bg-transparent text-slate-800 dark:text-white text-xs outline-none w-24 sm:w-36 transition-all"
+              />
+              <button
+                onClick={() => {
+                  setIsSemanticSearch(!isSemanticSearch);
+                  setMsgSearchQuery("");
+                }}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full border transition-all ${
+                  isSemanticSearch
+                    ? "bg-blue-600 text-white border-blue-500 font-bold"
+                    : "bg-slate-200 dark:bg-gray-800 text-slate-600 dark:text-gray-400 border-slate-300 dark:border-gray-700"
+                }`}
+                title="Toggle AI Semantic vector search"
+              >
+                AI
+              </button>
+            </div>
           )}
           <img
             onClick={() => {
               setIsSearchingMsg(!isSearchingMsg);
-              if (isSearchingMsg) setMsgSearchQuery("");
+              if (isSearchingMsg) {
+                setMsgSearchQuery("");
+                setIsSemanticSearch(false);
+              }
             }}
             src={assets.search_icon}
             alt="Search in chat"
@@ -192,19 +347,50 @@ const ChatContainer = () => {
         />
       </div>
 
+      {/* RAG Match Results popover list */}
+      {isSearchingMsg && isSemanticSearch && msgSearchQuery.trim() && (
+        <div className="absolute right-4 top-16 z-30 w-72 max-h-60 overflow-y-scroll bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-2xl space-y-2 text-slate-800 dark:text-white animate-in fade-in duration-200">
+          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-1.5">
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Semantic Matches</span>
+            {isSearchLoading && <div className="h-3 w-3 animate-spin border border-blue-600 border-t-transparent rounded-full"></div>}
+          </div>
+          {searchResults.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400 text-xs italic py-2">No matching messages found.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {searchResults.map((match) => (
+                <div
+                  key={match.message._id}
+                  onClick={() => handleScrollToMessage(match.message._id)}
+                  className="p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer text-[11px] transition-all border border-slate-100 dark:border-slate-800/80 flex flex-col gap-0.5 shadow-sm"
+                >
+                  <div className="flex justify-between font-semibold text-blue-600 dark:text-blue-400">
+                    <span>{match.message.senderId?.fullName || "User"}</span>
+                    <span className="text-[9px] text-slate-400">Match: {Math.round(match.score * 100)}%</span>
+                  </div>
+                  <p className="line-clamp-2 italic text-slate-600 dark:text-gray-300">
+                    "{match.message.text || (match.message.transcription ? `Voice: ${match.message.transcription}` : "Attachment")}"
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* messages part of chat container */}
       <div className="flex-1 overflow-y-scroll p-4 space-y-4">
         {isMessagesLoading ? (
-          <div className="flex flex-col items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-8 w-8 border-2 border-purple-500 border-t-transparent"></div>
+          <div className="flex flex-col items-center justify-center h-full space-y-2">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
-            <p>Say hello! 👋</p>
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <p className="font-light text-sm">Say hello to initialize chat! 👋</p>
           </div>
         ) : filteredMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
-            <p>No messages match "{msgSearchQuery}"</p>
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <p className="text-sm">No messages match search</p>
           </div>
         ) : (
           filteredMessages.map((message) => {
@@ -218,7 +404,8 @@ const ChatContainer = () => {
             return (
               <div
                 key={message._id}
-                className={`flex gap-3 max-w-[85%] ${
+                id={`msg-${message._id}`}
+                className={`flex gap-3 max-w-[85%] transition-all duration-300 rounded-2xl p-1 ${
                   isSentByMe ? "ml-auto flex-row-reverse" : "mr-auto"
                 }`}
               >
@@ -229,32 +416,52 @@ const ChatContainer = () => {
                 />
                 <div className="flex flex-col gap-0.5 max-w-[90%]">
                   {!isSentByMe && selectedGroup && (
-                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold ml-1">
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold ml-1">
                       {senderName}
                     </span>
                   )}
                   <div className="relative group/msg flex items-center">
                     <div
-                      className={`p-3 rounded-2xl break-words text-sm ${
+                      className={`p-3 rounded-2xl break-words text-sm shadow-sm ${
                         isSentByMe
-                          ? "bg-violet-600 text-white rounded-br-none dark:bg-violet-600/40"
-                          : "bg-slate-200 text-slate-800 rounded-bl-none dark:bg-gray-700/40 dark:text-white"
+                          ? "bg-blue-600 text-white rounded-br-none dark:bg-blue-600/40"
+                          : "bg-slate-100 text-slate-800 rounded-bl-none dark:bg-gray-800/60 dark:text-white"
                       }`}
                     >
                       {message.image && (
                         <img
                           src={message.image}
                           alt="shared content"
-                          className="max-w-[200px] sm:max-w-[280px] rounded-lg mb-2 cursor-pointer border border-slate-300 dark:border-gray-700 hover:opacity-90"
+                          className="max-w-[200px] sm:max-w-[285px] rounded-xl mb-2 cursor-pointer border border-slate-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
                           onClick={() => window.open(message.image)}
                         />
                       )}
+                      
+                      {/* Audio Note player support */}
+                      {message.audioUrl && (
+                        <div className="flex flex-col gap-2 min-w-[210px]">
+                          <audio src={message.audioUrl} controls className="h-8 max-w-full rounded-md shadow-inner bg-slate-100 dark:bg-slate-800 filter brightness-95" />
+                          {message.transcription && (
+                            <div className="text-[11px] border-t border-slate-200 dark:border-slate-800 pt-1.5 mt-0.5">
+                              <span className="font-semibold text-blue-500 block mb-0.5">Transcribed Text:</span>
+                              <p className="italic text-slate-600 dark:text-slate-300">"{message.transcription}"</p>
+                              {message.audioSummary && (
+                                <div className="mt-1 border-t border-dotted border-slate-200 dark:border-slate-800/80 pt-1">
+                                  <span className="font-bold text-[9px] text-slate-400 block mb-0.5">AI Audio Summary:</span>
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{message.audioSummary}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {message.text && <p>{message.text}</p>}
                     </div>
 
                     {/* Hover Emoji Reaction Selector */}
                     <div
-                      className={`opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150 absolute top-1/2 -translate-y-1/2 flex gap-1 bg-white dark:bg-[#282142] border border-slate-200 dark:border-gray-700 px-2 py-1 rounded-full shadow-lg z-10 ${
+                      className={`opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150 absolute top-1/2 -translate-y-1/2 flex gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-gray-700 px-2 py-1.5 rounded-full shadow-lg z-10 ${
                         isSentByMe ? "-left-44" : "-right-44"
                       }`}
                     >
@@ -278,7 +485,7 @@ const ChatContainer = () => {
                         <span
                           key={i}
                           onClick={() => reactToMessage(message._id, reaction.emoji)}
-                          className="inline-flex items-center bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-full px-2 py-0.5 text-[10px] select-none cursor-pointer hover:scale-105 transition-all shadow-sm font-semibold"
+                          className="inline-flex items-center bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-full px-2 py-0.5 text-[10px] select-none cursor-pointer hover:scale-105 transition-all shadow-sm font-semibold text-slate-700 dark:text-gray-200"
                           title="Click to toggle reaction"
                         >
                           {reaction.emoji}
@@ -288,7 +495,7 @@ const ChatContainer = () => {
                   )}
 
                   <div
-                    className={`flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 ${
+                    className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-400 mt-0.5 ${
                       isSentByMe ? "justify-end" : "justify-start"
                     }`}
                   >
@@ -309,17 +516,17 @@ const ChatContainer = () => {
 
         {/* Real-time typing bubble */}
         {selectedUser && isUserTyping && (
-          <div className="flex gap-3 max-w-[80%] mr-auto items-center">
+          <div className="flex gap-3 max-w-[80%] mr-auto items-center animate-pulse">
             <img
               src={selectedUser.profilePic || assets.avatar_icon}
               alt="avatar"
               className="w-8 h-8 rounded-full object-cover self-end shadow-sm"
             />
-            <div className="bg-slate-200 text-slate-800 rounded-2xl rounded-bl-none p-3 dark:bg-gray-700/40 dark:text-gray-300">
+            <div className="bg-slate-100 text-slate-800 rounded-2xl rounded-bl-none p-3 dark:bg-gray-800/60 dark:text-gray-300">
               <span className="flex gap-1 items-center h-4 py-1">
-                <span className="h-1.5 w-1.5 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                <span className="h-1.5 w-1.5 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                <span className="h-1.5 w-1.5 bg-gray-400 dark:bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                <span className="h-1.5 w-1.5 bg-slate-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="h-1.5 w-1.5 bg-slate-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="h-1.5 w-1.5 bg-slate-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
               </span>
             </div>
           </div>
@@ -327,6 +534,30 @@ const ChatContainer = () => {
 
         <div ref={scrollEnd}></div>
       </div>
+
+      {/* ------- bottom AI smart repliessuggestions pills ------- */}
+      {suggestions && suggestions.length > 0 && !imagePreview && !isRecording && (
+        <div className="flex gap-1.5 px-4 py-2 flex-wrap items-center bg-slate-50/50 dark:bg-black/10 border-t border-slate-200/50 dark:border-gray-800/20">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-1">Reply suggestions:</span>
+          {isSuggestionsLoading ? (
+            <div className="flex gap-1 animate-pulse py-1">
+              <div className="h-5 w-12 bg-slate-200 dark:bg-gray-800 rounded-full"></div>
+              <div className="h-5 w-16 bg-slate-200 dark:bg-gray-800 rounded-full"></div>
+            </div>
+          ) : (
+            suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => setText(suggestion)}
+                className="cursor-pointer bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] px-3 py-1 rounded-full border border-slate-200 dark:border-gray-700 font-medium text-slate-700 dark:text-slate-200 transition-all active:scale-95 shadow-sm"
+              >
+                {suggestion}
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       {/* ------- bottom image preview ------- */}
       {imagePreview && (
@@ -341,16 +572,79 @@ const ChatContainer = () => {
         </div>
       )}
 
+      {/* ------- bottom AI text rewrite popup confirmation ------- */}
+      {rewrittenPreview && (
+        <div className="absolute bottom-16 right-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl max-w-xs z-50 shadow-2xl flex flex-col gap-3 animate-in fade-in duration-200 text-slate-800 dark:text-white">
+          <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">AI Rewrite Preview ({rewriteTone})</p>
+          <p className="text-xs italic bg-slate-50 dark:bg-black/10 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/80 text-slate-750 dark:text-gray-300">
+            "{rewrittenPreview}"
+          </p>
+          <div className="flex justify-end gap-2 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setRewrittenPreview("")}
+              className="cursor-pointer px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-gray-500 font-medium transition-all"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setText(rewrittenPreview);
+                setRewrittenPreview("");
+              }}
+              className="cursor-pointer px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg active:scale-95 transition-all shadow-md shadow-blue-500/10"
+            >
+              Approve
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ------- bottom input area -------  */}
-      <form onSubmit={handleSend} className="p-4 flex items-center gap-3">
+      <form onSubmit={handleSend} className="p-4 flex items-center gap-3 relative">
+        {/* Magic Wand Tone popover */}
+        {showRewritePopover && (
+          <div className="absolute bottom-16 right-16 z-30 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-xl shadow-xl w-36 flex flex-col gap-1 text-xs animate-in fade-in duration-150">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1 border-b border-slate-100 dark:border-slate-800">Select Tone</p>
+            {["Friendly", "Professional", "Polite", "Funny", "Romantic", "Short"].map((tone) => (
+              <button
+                key={tone}
+                type="button"
+                onClick={() => handleRewriteSelect(tone)}
+                className="cursor-pointer text-left py-1.5 px-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg transition-colors font-medium text-slate-700 dark:text-gray-200"
+              >
+                {tone}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 flex items-center bg-slate-100 dark:bg-gray-800/40 px-3 rounded-full border border-slate-200 dark:border-gray-700/50 shadow-inner">
           <input
             type="text"
             value={text}
             onChange={handleTextChange}
-            placeholder="Send a message..."
-            className="flex-1 text-sm p-3 bg-transparent border-none rounded-lg outline-none text-slate-800 dark:text-white placeholder-gray-400"
+            disabled={isRecording}
+            placeholder={isRecording ? "Recording audio note..." : "Send a message..."}
+            className="flex-1 text-sm p-3 bg-transparent border-none rounded-lg outline-none text-slate-800 dark:text-white placeholder-gray-400 disabled:opacity-50"
           />
+
+          {/* AI Magic Wand Rewrite Trigger */}
+          <button
+            type="button"
+            disabled={isRecording || !text.trim() || isRewriting}
+            onClick={() => setShowRewritePopover(!showRewritePopover)}
+            className="cursor-pointer p-1.5 hover:opacity-85 disabled:opacity-40 disabled:pointer-events-none transition-all flex items-center"
+            title="Rewrite with AI"
+          >
+            {isRewriting ? (
+              <div className="h-4 w-4 animate-spin border border-blue-600 border-t-transparent rounded-full"></div>
+            ) : (
+              <span className="text-sm">✨</span>
+            )}
+          </button>
+
           <input
             type="file"
             id="image-file"
@@ -359,7 +653,7 @@ const ChatContainer = () => {
             ref={fileInputRef}
             onChange={handleImageChange}
           />
-          <label htmlFor="image-file">
+          <label htmlFor="image-file" className={isRecording ? "opacity-30 pointer-events-none" : "cursor-pointer"}>
             <img
               src={assets.gallery_icon}
               alt="gallery"
@@ -367,14 +661,65 @@ const ChatContainer = () => {
             />
           </label>
         </div>
+
+        {/* Microphone Recording trigger */}
+        <button
+          type="button"
+          onClick={isRecording ? stopRecording : startRecording}
+          className={`cursor-pointer p-3 rounded-full hover:opacity-95 transition-all text-sm shadow-md active:scale-95 ${
+            isRecording ? "bg-red-500 text-white animate-pulse" : "bg-slate-100 dark:bg-gray-800/40 text-slate-600 dark:text-gray-300"
+          }`}
+          title={isRecording ? "Stop voice recording" : "Record voice message"}
+        >
+          {isRecording ? "⏹️" : "🎤"}
+        </button>
+
         <button
           type="submit"
-          disabled={!text.trim() && !imagePreview}
-          className="cursor-pointer bg-gradient-to-r from-purple-400 to-violet-600 p-2.5 rounded-full hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md"
+          disabled={(!text.trim() && !imagePreview) || isRecording}
+          className="cursor-pointer bg-blue-600 hover:bg-blue-700 p-2.5 rounded-full hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md shadow-blue-500/10"
         >
           <img src={assets.send_button} alt="Send" className="w-5 h-5 filter invert" />
         </button>
       </form>
+
+      {/* Unread summary modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md p-6 rounded-2xl shadow-2xl relative text-slate-800 dark:text-white animate-in fade-in duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+              <h3 className="text-lg font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                🤖 AI Unread Summary
+              </h3>
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            {isSummaryLoading ? (
+              <div className="space-y-3 py-4">
+                <div className="h-4 w-3/4 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                <div className="h-4 w-5/6 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                <div className="h-4 w-2/3 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+              </div>
+            ) : (
+              <div className="text-sm space-y-2 py-2 text-slate-600 dark:text-slate-350 leading-relaxed font-light whitespace-pre-line">
+                {unreadSummary || "No summary available."}
+              </div>
+            )}
+            <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800 mt-4">
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="cursor-pointer px-5 py-2 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all shadow-md shadow-blue-500/10"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

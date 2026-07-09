@@ -2,6 +2,8 @@ import Group from "../models/Group.js";
 import Message from "../models/message.js";
 import cloudinary from "../lib/cloudinary.js";
 import { io, userSocketMap } from "../server.js";
+import { generateEmbedding } from "../services/embeddingService.js";
+import { transcribeVoice, summarizeAudioTranscript } from "../services/aiService.js";
 
 // Create a new group
 export const createGroup = async (req, res) => {
@@ -85,7 +87,7 @@ export const getGroupMessages = async (req, res) => {
 // Send a message to a group
 export const sendGroupMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
+    const { text, image, audio, mimeType } = req.body;
     const { groupId } = req.params;
     const senderId = req.user._id;
 
@@ -105,11 +107,43 @@ export const sendGroupMessage = async (req, res) => {
       imageUrl = uploadedImage.secure_url;
     }
 
+    let audioUrl = "";
+    let transcription = "";
+    let audioSummary = "";
+
+    if (audio) {
+      try {
+        const uploadedAudio = await cloudinary.uploader.upload(audio, { resource_type: "video" });
+        audioUrl = uploadedAudio.secure_url;
+        transcription = await transcribeVoice(audio, mimeType);
+        if (transcription && transcription.length > 100) {
+          audioSummary = await summarizeAudioTranscript(transcription);
+        }
+      } catch (err) {
+        console.error("AI audio transcription error (group):", err.message);
+      }
+    }
+
+    // Generate semantic embedding vector
+    let embedding = [];
+    const textToEmbed = text || transcription;
+    if (textToEmbed) {
+      try {
+        embedding = await generateEmbedding(textToEmbed);
+      } catch (err) {
+        console.error("AI embedding generation failed (group):", err.message);
+      }
+    }
+
     const newMessage = await Message.create({
       senderId,
       groupId,
       text,
       image: imageUrl,
+      audioUrl,
+      transcription,
+      audioSummary,
+      embedding,
     });
     await newMessage.save();
 

@@ -20,6 +20,15 @@ export const MessageProvider = ({ children }) => {
   const [isGroupsLoading, setIsGroupsLoading] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
 
+  // AI Feature States
+  const [suggestions, setSuggestions] = useState([]);
+  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
+  const [unreadSummary, setUnreadSummary] = useState("");
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [isSemanticSearch, setIsSemanticSearch] = useState(false);
+
   const getUsers = async () => {
     setIsUsersLoading(true);
     try {
@@ -43,7 +52,6 @@ export const MessageProvider = ({ children }) => {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
         setMessages(data.messages);
-        // Clear unseen messages locally for this user
         setUnseenMessages((prev) => {
           const updated = { ...prev };
           delete updated[userId];
@@ -135,32 +143,82 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
-  const reactToMessage = async (messageId, emoji) => {
+  // AI Feature Integration API Methods
+  const getSmartReplies = async (chatId) => {
+    setIsSuggestionsLoading(true);
     try {
-      const { data } = await axios.put(`/api/messages/react/${messageId}`, { emoji });
+      const { data } = await axios.get(`/api/ai/suggestions/${chatId}`);
       if (data.success) {
-        setMessages((prev) =>
-          prev.map((msg) => (msg._id === messageId ? { ...msg, reactions: data.reactions } : msg))
-        );
+        setSuggestions(data.suggestions || []);
       }
     } catch (error) {
-      console.error("Error reacting to message:", error);
+      console.error("Error fetching AI suggestions:", error);
+    } finally {
+      setIsSuggestionsLoading(false);
     }
   };
+
+  const rewriteMessage = async (text, tone) => {
+    try {
+      const { data } = await axios.post("/api/ai/rewrite", { text, tone });
+      if (data.success) {
+        return data.rewrittenText;
+      }
+    } catch (error) {
+      console.error("Error rewriting message:", error);
+    }
+    return text;
+  };
+
+  const getUnreadSummary = async (chatId) => {
+    setIsSummaryLoading(true);
+    setUnreadSummary("");
+    try {
+      const { data } = await axios.get(`/api/ai/unread-summary/${chatId}`);
+      if (data.success) {
+        setUnreadSummary(data.summary || "");
+      }
+    } catch (error) {
+      console.error("Error fetching unread summary:", error);
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  };
+
+  const performSemanticSearch = async (chatId, query) => {
+    if (!query || !query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearchLoading(true);
+    try {
+      const { data } = await axios.get(`/api/ai/search/${chatId}?query=${encodeURIComponent(query)}`);
+      if (data.success) {
+        setSearchResults(data.matches || []);
+      }
+    } catch (error) {
+      console.error("Error in semantic search:", error);
+    } finally {
+      setIsSearchLoading(false);
+    }
+  };
+
+  // Trigger smart replies suggestions on chat focus
+  useEffect(() => {
+    const activeId = selectedUser?._id || selectedGroup?._id;
+    if (activeId) {
+      getSmartReplies(activeId);
+    } else {
+      setSuggestions([]);
+    }
+    // Reset search queries
+    setSearchResults([]);
+    setUnreadSummary("");
+  }, [selectedUser, selectedGroup]);
 
   // Listen to incoming socket messages and events
   useEffect(() => {
     if (!socket) return;
-
-    const playSound = () => {
-      try {
-        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav");
-        audio.volume = 0.35;
-        audio.play().catch(e => console.log(e));
-      } catch (err) {
-        console.log(err);
-      }
-    };
 
     const handleNewMessage = (newMessage) => {
       // Check if it is a group message
@@ -180,6 +238,8 @@ export const MessageProvider = ({ children }) => {
           setMessages((prev) => [...prev, newMessage]);
           // Also call API to mark it as seen since chat is open
           axios.put(`/api/messages/mark/${newMessage._id}`).catch((err) => console.log(err));
+          // Refresh smart replies context since we got a new message
+          getSmartReplies(selectedUser._id);
         } else {
           // Play a notification alert sound and show a toast
           playSound();
@@ -228,6 +288,16 @@ export const MessageProvider = ({ children }) => {
       );
     };
 
+    const playSound = () => {
+      try {
+        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav");
+        audio.volume = 0.35;
+        audio.play().catch(e => console.log(e));
+      } catch (err) {
+        console.log(err);
+      }
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("messages-seen", handleMessagesSeen);
     socket.on("message-seen", handleSingleMessageSeen);
@@ -245,7 +315,7 @@ export const MessageProvider = ({ children }) => {
       socket.off("group-created", handleGroupCreated);
       socket.off("message-reaction", handleReaction);
     };
-  }, [socket, selectedUser, selectedGroup]);
+  }, [socket, selectedUser, selectedGroup, groups, users]);
 
   const value = {
     users,
@@ -258,6 +328,13 @@ export const MessageProvider = ({ children }) => {
     groups,
     selectedGroup,
     isGroupsLoading,
+    suggestions,
+    isSuggestionsLoading,
+    unreadSummary,
+    isSummaryLoading,
+    searchResults,
+    isSearchLoading,
+    isSemanticSearch,
     setSelectedUser,
     setSelectedGroup,
     getUsers,
@@ -267,10 +344,32 @@ export const MessageProvider = ({ children }) => {
     createGroup,
     getGroupMessages,
     sendGroupMessage,
-    reactToMessage,
+    reactToMessage: null, // React to message handled via context call to reactToMessage is inside value
+    reactToMessageMethod: null,
+    getSmartReplies,
+    rewriteMessage,
+    getUnreadSummary,
+    performSemanticSearch,
+    setSearchResults,
+    setIsSemanticSearch,
     setMessages,
     setUnseenMessages,
   };
+
+  // We need to implement a frontend method reactToMessage that hits the PUT route in case components call it!
+  const reactToMessage = async (messageId, emoji) => {
+    try {
+      const { data } = await axios.put(`/api/messages/react/${messageId}`, { emoji });
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg._id === messageId ? { ...msg, reactions: data.reactions } : msg))
+        );
+      }
+    } catch (error) {
+      console.error("Error reacting to message:", error);
+    }
+  };
+  value.reactToMessage = reactToMessage;
 
   return (
     <MessageContext.Provider value={value}>

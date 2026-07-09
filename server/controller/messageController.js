@@ -4,6 +4,8 @@ import Message from "../models/message.js";
 import Group from "../models/Group.js";
 import cloudinary from "../lib/cloudinary.js";
 import {io,userSocketMap} from "../server.js";
+import { generateEmbedding } from "../services/embeddingService.js";
+import { transcribeVoice, summarizeAudioTranscript } from "../services/aiService.js";
 
 export const getUserForSidebar = async (req, res) =>{
   try {
@@ -71,16 +73,54 @@ export const markMessageAsSeen = async (req,res)=>{
 //send message to selected user
 export const sendMessage = async (req,res)=>{
   try { 
-    const {image,text} = req.body;
+    const {image,text,audio,mimeType} = req.body;
     const receiverId = req.params.id;
     const senderId = req.user._id;
+    
     let imageUrl = "";
     if(image){
       const uploadedImage = await cloudinary.uploader.upload(image);
       imageUrl = uploadedImage.secure_url;
     }
 
-    const newMessage = await Message.create({senderId,receiverId,text,image:imageUrl});
+    let audioUrl = "";
+    let transcription = "";
+    let audioSummary = "";
+
+    if(audio){
+      try {
+        const uploadedAudio = await cloudinary.uploader.upload(audio, { resource_type: "video" });
+        audioUrl = uploadedAudio.secure_url;
+        transcription = await transcribeVoice(audio, mimeType);
+        if (transcription && transcription.length > 100) {
+          audioSummary = await summarizeAudioTranscript(transcription);
+        }
+      } catch (err) {
+        console.error("AI audio transcription error:", err.message);
+      }
+    }
+
+    // Generate semantic embedding vector
+    let embedding = [];
+    const textToEmbed = text || transcription;
+    if (textToEmbed) {
+      try {
+        embedding = await generateEmbedding(textToEmbed);
+      } catch (err) {
+        console.error("AI embedding generation failed:", err.message);
+      }
+    }
+
+    const newMessage = await Message.create({
+      senderId,
+      receiverId,
+      text,
+      image: imageUrl,
+      audioUrl,
+      transcription,
+      audioSummary,
+      embedding,
+    });
     await newMessage.save();
 
     // Emit the new message to the receiver if they are online

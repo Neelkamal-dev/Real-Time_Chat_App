@@ -19,7 +19,7 @@ const App = () => {
   }
 
   return (
-    <div className='bg-[url("./src/assets/bgImage.svg")] bg-contain min-h-screen'>
+    <div className='bg-[#f8f9fa] dark:bg-[url("./src/assets/bgImage.svg")] dark:bg-contain bg-cover min-h-screen text-slate-800 dark:text-white transition-colors duration-200'>
       <Toaster />
       <Routes>
         <Route path="/" element={authUser ? <HomePage /> : <LoginPage />} />

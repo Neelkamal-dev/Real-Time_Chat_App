@@ -17,7 +17,7 @@ export const AuthProvider = ({children}) =>{
   const [onlineUsers,setOnlineUsers] = useState([]);
   const [socket,setSocket] = useState(null);  
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
   useEffect(() => {
     const root = window.document.documentElement;

@@ -11,7 +11,6 @@ const ProfilePage = () => {
   const [name, setName] = React.useState(authUser?.fullName || "");
   const [bio, setBio] = React.useState(authUser?.bio || "");
 
-  // Update local states if authUser details finish loading
   React.useEffect(() => {
     if (authUser) {
       setName(authUser.fullName || "");
@@ -21,8 +20,8 @@ const ProfilePage = () => {
 
   if (!authUser) {
     return (
-      <div className="min-h-screen bg-cover bg-no-repeat flex items-center justify-center text-white">
-        <p>Loading profile...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
       </div>
     );
   }
@@ -31,7 +30,7 @@ const ProfilePage = () => {
     e.preventDefault();
     if (!selectedImage) {
       await updateProfile({ fullName: name, bio });
-      navigate("/"); // Navigate to the home page after saving
+      navigate("/");
       return;
     }
     
@@ -40,71 +39,83 @@ const ProfilePage = () => {
     reader.onload = async () => {
       const base64Image = reader.result;
       await updateProfile({ fullName: name, bio, profilePic: base64Image });
-      navigate("/"); // Navigate to the home page after saving
+      navigate("/");
     };
   };
 
   return (
-    <div className="min-h-screen bg-cover bg-no-repeat flex items-center justify-center">
-      <div className="w-5/6 max-w-2xl backdrop-blur-2xl text-gray-300 border-2 border-gray-600 flex items-center justify-between max-sm:flex-col-reverse rounded-lg">
-        
-        {/* Profile form */}
-        <form className="flex flex-col gap-5 p-10 flex-1" onSubmit={handleSubmit}>
-          <h3 className="text-lg">Profile details</h3>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 transition-colors duration-200">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl p-8 text-slate-800 dark:text-white transition-all duration-200">
+        <div className="flex items-center gap-3 mb-6">
+          <img
+            onClick={() => navigate("/")}
+            src={assets.arrow_icon}
+            alt="Back"
+            className="w-5 h-5 cursor-pointer hover:opacity-80 transition-opacity filter dark:invert invert"
+          />
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Profile Settings</h2>
+        </div>
 
+        <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
           {/* Avatar upload */}
-          <label htmlFor="avatar" className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="file"
-              id="avatar"
-              accept=".png, .jpg, .jpeg"
-              hidden
-              onChange={(e) => setSelectedImage(e.target.files[0])}
-            />
-            <img
-              src={
-                selectedImage
-                  ? URL.createObjectURL(selectedImage)
-                  : (authUser.profilePic || assets.avatar_icon)
-              }
-              alt="avatar"
-              className="w-12 h-12 rounded-full object-cover"
-            />
-          </label>
+          <div className="flex flex-col items-center gap-2 py-4">
+            <label htmlFor="avatar" className="relative group cursor-pointer">
+              <input
+                type="file"
+                id="avatar"
+                accept=".png, .jpg, .jpeg"
+                hidden
+                onChange={(e) => setSelectedImage(e.target.files[0])}
+              />
+              <img
+                src={
+                  selectedImage
+                    ? URL.createObjectURL(selectedImage)
+                    : (authUser.profilePic || assets.avatar_icon)
+                }
+                alt="avatar"
+                className="w-24 h-24 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700 shadow-md group-hover:opacity-85 transition-opacity"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-[10px] text-white font-bold uppercase tracking-wider">Change</span>
+              </div>
+            </label>
+            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-1">Upload profile photo</span>
+          </div>
 
           {/* Name input */}
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            className="p-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500 text-white bg-transparent"
-          />
+          <div className="flex flex-col">
+            <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Full Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              required
+              className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white"
+            />
+          </div>
 
           {/* Bio input */}
-          <textarea
-            onChange={(e) => setBio(e.target.value)}
-            value={bio}
-            placeholder="Write profile bio"
-            required
-            className="p-2 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500 text-white bg-transparent"
-            rows={4}
-          ></textarea>
+          <div className="flex flex-col">
+            <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Bio</label>
+            <textarea
+              onChange={(e) => setBio(e.target.value)}
+              value={bio}
+              placeholder="Write a brief bio about yourself..."
+              required
+              className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white resize-none"
+              rows={4}
+            ></textarea>
+          </div>
 
           <button
             type="submit"
-            className="bg-gradient-to-r from-purple-400 to-violet-600 text-white p-2 rounded-full text-lg cursor-pointer font-medium"
+            className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-semibold transition-all shadow-md shadow-blue-500/10 hover:shadow-blue-500/20 active:scale-95 text-sm mt-2"
           >
-            Save
+            Save Profile
           </button>
         </form>
-
-        {/* Right-side preview */}
-        <img
-          className="max-w-44 aspect-square rounded-full mx-10 max-sm:mt-10 object-cover"
-          src={authUser.profilePic || assets.logo_icon}
-          alt=""
-        />
       </div>
     </div>
   );

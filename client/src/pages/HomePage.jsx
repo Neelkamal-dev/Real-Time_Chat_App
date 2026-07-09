@@ -5,14 +5,14 @@ import ChatContainer from "../components/ChatContainer";
 import { MessageContext } from "../../context/MessageContext";
 
 const HomePage = () => {
-  const { selectedUser } = useContext(MessageContext);
+  const { selectedUser, selectedGroup } = useContext(MessageContext);
 
   return (
-    <div className="w-full h-screen sm:px-[10%] sm:py-[2%] transition-colors duration-300">
-      <div className={`backdrop-blur-xl border border-slate-300 dark:border-gray-600/50 rounded-2xl overflow-hidden h-[100%] grid grid-cols-1 relative bg-white/80 dark:bg-[#130f26]/75 shadow-2xl transition-all duration-300 ${
-        selectedUser
-          ? "md:grid-cols-[1.2fr_2fr_1.2fr] xl:grid-cols-[1fr_2.5fr_1fr]"
-          : "md:grid-cols-[1.5fr_2fr]"
+    <div className="w-screen h-screen flex bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-150 overflow-hidden transition-colors duration-300">
+      <div className={`w-full h-full grid grid-cols-1 relative bg-white dark:bg-zinc-900/40 transition-all duration-300 ${
+        selectedUser || selectedGroup
+          ? "md:grid-cols-[290px_1fr_260px] xl:grid-cols-[320px_1fr_290px]"
+          : "md:grid-cols-[340px_1fr]"
       }`}>
         <Sidebar />
         <ChatContainer />

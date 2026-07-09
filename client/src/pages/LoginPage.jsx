@@ -23,41 +23,41 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center gap-8 sm:justify-evenly max-sm:flex-col p-4 bg-slate-50 dark:bg-slate-950 transition-colors duration-200">
+    <div className="min-h-screen flex items-center justify-center gap-8 sm:justify-evenly max-sm:flex-col p-6 bg-slate-50 dark:bg-zinc-950 transition-colors duration-200">
       {/* left info */}
       <div className="flex flex-col items-center sm:items-start text-center sm:text-left gap-2 max-w-sm">
-        <img src={assets.logo_big} alt="Logo" className="w-[min(28vw,210px)] filter dark:brightness-100 brightness-0" />
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-light">
-          Experience premium real-time collaboration with smart suggestions, speech transcripts, and instant semantic search.
+        <img src={assets.logo_big} alt="Logo" className="w-[min(28vw,180px)] filter dark:brightness-100 brightness-0" />
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-light leading-relaxed">
+          Premium real-time messaging environment with streaming replies, audio notes transcription summaries, and instant semantic search.
         </p>
       </div>
 
       {/* right form */}
       <form
         onSubmit={submitHandler}
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 flex flex-col gap-5 rounded-2xl shadow-xl w-full max-w-sm text-slate-800 dark:text-white transition-all duration-200"
+        className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-850 p-6 flex flex-col gap-4 rounded-xl shadow-lg w-full max-w-sm text-slate-800 dark:text-white transition-all duration-200"
       >
-        <h2 className="font-bold text-2xl flex justify-between items-center text-slate-900 dark:text-white">
+        <h2 className="font-bold text-lg flex justify-between items-center text-slate-900 dark:text-white">
           {currState}
           {isDataSubmitted && (
             <img
               onClick={() => setIsDataSubmitted(false)}
               src={assets.arrow_icon}
               alt="Back"
-              className="w-5 cursor-pointer hover:opacity-80 transition-opacity filter dark:invert invert"
+              className="w-4 cursor-pointer hover:opacity-80 transition-opacity filter dark:invert invert"
             />
           )}
         </h2>
 
         {currState === "Sign up" && !isDataSubmitted && (
           <div className="flex flex-col">
-            <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Full Name</label>
+            <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Full Name</label>
             <input
               onChange={(e) => setFullName(e.target.value)}
               value={fullName}
               type="text"
-              className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white"
-              placeholder="Your full name"
+              className="p-2.5 bg-slate-50 dark:bg-black/10 border border-slate-200 dark:border-zinc-850 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 text-slate-800 dark:text-white"
+              placeholder="e.g. John Doe"
               required
             />
           </div>
@@ -66,25 +66,25 @@ const LoginPage = () => {
         {!isDataSubmitted && (
           <>
             <div className="flex flex-col">
-              <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Email Address</label>
+              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Email Address</label>
               <input
                 onChange={(e) => setEmail(e.target.value)}
                 value={email}
                 type="email"
-                placeholder="you@example.com"
+                placeholder="e.g. you@example.com"
                 required
-                className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white"
+                className="p-2.5 bg-slate-50 dark:bg-black/10 border border-slate-200 dark:border-zinc-850 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 text-slate-800 dark:text-white"
               />
             </div>
             <div className="flex flex-col">
-              <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Password</label>
+              <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Password</label>
               <input
                 onChange={(e) => setPassword(e.target.value)}
                 value={password}
                 type="password"
                 placeholder="••••••••"
                 required
-                className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white"
+                className="p-2.5 bg-slate-50 dark:bg-black/10 border border-slate-200 dark:border-zinc-850 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 text-slate-800 dark:text-white"
               />
             </div>
           </>
@@ -92,12 +92,12 @@ const LoginPage = () => {
 
         {currState === "Sign up" && isDataSubmitted && (
           <div className="flex flex-col">
-            <label className="text-xs font-semibold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Short Bio</label>
+            <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">Short Bio</label>
             <textarea
               onChange={(e) => setBio(e.target.value)}
               value={bio}
               rows={4}
-              className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-white resize-none"
+              className="p-2.5 bg-slate-50 dark:bg-black/10 border border-slate-200 dark:border-zinc-850 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 text-slate-800 dark:text-white resize-none leading-relaxed"
               placeholder="Tell others a bit about yourself..."
               required
             ></textarea>
@@ -106,36 +106,36 @@ const LoginPage = () => {
 
         <button
           type="submit"
-          className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3.5 font-semibold transition-all shadow-md shadow-blue-500/10 hover:shadow-blue-500/20 active:scale-95 text-sm"
+          className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2.5 font-semibold transition-all active:scale-98 text-xs shadow-sm shadow-blue-500/10"
         >
           {currState === "Sign up" ? (isDataSubmitted ? "Create Account" : "Next") : "Login"}
         </button>
 
-        <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
-          <input type="checkbox" required className="accent-blue-600 w-4 h-4 rounded border-slate-300" />
+        <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+          <input type="checkbox" required className="accent-blue-600 w-3.5 h-3.5 rounded border-slate-200 dark:border-zinc-800" />
           <p>I agree to the terms of use & privacy policy.</p>
         </div>
 
-        <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
           {currState === "Sign up" ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-[10px] text-slate-550 dark:text-slate-400">
               Already have an account?{" "}
               <span
                 onClick={() => {
                   setCurrState("Login");
                   setIsDataSubmitted(false);
                 }}
-                className="font-semibold text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
+                className="font-bold text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
               >
                 Login here
               </span>
             </p>
           ) : (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-[10px] text-slate-550 dark:text-slate-400">
               New to our platform?{" "}
               <span
                 onClick={() => setCurrState("Sign up")}
-                className="font-semibold text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
+                className="font-bold text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
               >
                 Click here
               </span>

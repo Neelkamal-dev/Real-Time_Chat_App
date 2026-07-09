@@ -152,14 +152,27 @@ export const MessageProvider = ({ children }) => {
   useEffect(() => {
     if (!socket) return;
 
+    const playSound = () => {
+      try {
+        const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav");
+        audio.volume = 0.35;
+        audio.play().catch(e => console.log(e));
+      } catch (err) {
+        console.log(err);
+      }
+    };
+
     const handleNewMessage = (newMessage) => {
       // Check if it is a group message
       if (newMessage.groupId) {
         if (selectedGroup && newMessage.groupId === selectedGroup._id) {
           setMessages((prev) => [...prev, newMessage]);
         } else {
-          // Play a notification or alert
-          toast(`New message in group chat! 👥`, { icon: '👥' });
+          // Play a notification alert sound and show a toast
+          playSound();
+          const groupObj = groups.find((g) => g._id === newMessage.groupId);
+          const senderName = newMessage.senderId?.fullName || "Group Member";
+          toast(`[${groupObj?.name || "Group"}] ${senderName}: ${newMessage.text || "📷 Photo"}`, { icon: '👥' });
         }
       } else {
         // It is a private message
@@ -168,11 +181,14 @@ export const MessageProvider = ({ children }) => {
           // Also call API to mark it as seen since chat is open
           axios.put(`/api/messages/mark/${newMessage._id}`).catch((err) => console.log(err));
         } else {
-          // Otherwise increment unseen count
+          // Play a notification alert sound and show a toast
+          playSound();
           setUnseenMessages((prev) => ({
             ...prev,
             [newMessage.senderId]: (prev[newMessage.senderId] || 0) + 1,
           }));
+          const userObj = users.find((u) => u._id === newMessage.senderId);
+          toast(`💬 ${userObj?.fullName || "New message"}: ${newMessage.text || "📷 Photo"}`);
         }
       }
     };

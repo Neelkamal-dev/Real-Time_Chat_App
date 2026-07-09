@@ -9,3 +9,7 @@ Requirements:
 3. If the audio is completely silent or contains only static, output exactly: "[Silence]".
 `;
 };
+
+export const getAudioSummaryPrompt = (transcript) => {
+  return `Provide a very short, one-sentence summary (less than 15 words) of this transcription:\n\n"${transcript}"`;
+};

@@ -1,8 +1,8 @@
 import { geminiModel } from "../config/gemini.js";
-import { getSmartReplyPrompt } from "../prompts/smartReplyPrompt.js";
+import { getSmartReplyPrompt } from "../prompts/replyPrompt.js";
 import { getRewritePrompt } from "../prompts/rewritePrompt.js";
 import { getSummaryPrompt } from "../prompts/summaryPrompt.js";
-import { getTranscriptionPrompt } from "../prompts/transcriptionPrompt.js";
+import { getTranscriptionPrompt, getAudioSummaryPrompt } from "../prompts/transcriptionPrompt.js";
 
 /**
  * Generates 3-5 smart reply suggestions from conversation context.
@@ -99,7 +99,7 @@ export const transcribeVoice = async (base64AudioData, mimeType) => {
  */
 export const summarizeAudioTranscript = async (transcript) => {
   try {
-    const prompt = `Provide a very short, one-sentence summary (less than 15 words) of this transcription:\n\n"${transcript}"`;
+    const prompt = getAudioSummaryPrompt(transcript);
     const result = await geminiModel.generateContent(prompt);
     return result.response.text().trim();
   } catch (error) {

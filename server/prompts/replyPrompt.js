@@ -13,3 +13,4 @@ Requirements:
 4. Suggestions should represent diverse responses (e.g., affirmative, negative, questioning, polite delay).
 `;
 };
+export default getSmartReplyPrompt;

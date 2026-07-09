@@ -94,9 +94,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let activeSocket = null;
 
-    if (authUser) {
+    if (authUser && token) {
       activeSocket = io(backendUrl, {
-        query: { userId: authUser._id },
+        auth: { token }, // Pass the JWT token for secure authorization checks
         autoConnect: true,
       });
 
@@ -117,7 +117,7 @@ export const AuthProvider = ({ children }) => {
         activeSocket.disconnect();
       }
     };
-  }, [authUser]);
+  }, [authUser, token]);
 
   useEffect(() => {
     if (token) {

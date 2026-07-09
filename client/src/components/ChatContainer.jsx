@@ -32,6 +32,8 @@ const ChatContainer = () => {
     updateMessageTranscript,
     performSemanticSearch,
     setIsSemanticSearch,
+    hasMore,
+    loadMoreMessages,
   } = useContext(MessageContext);
 
   const [text, setText] = useState("");
@@ -86,6 +88,19 @@ const ChatContainer = () => {
       if (transcriptionAbortControllerRef.current) transcriptionAbortControllerRef.current.abort();
     };
   }, []);
+
+  const handleScroll = async (e) => {
+    const { scrollTop } = e.target;
+    if (scrollTop === 0 && hasMore && !isMessagesLoading) {
+      const scrollHeightBefore = e.target.scrollHeight;
+      await loadMoreMessages();
+      setTimeout(() => {
+        if (e.target) {
+          e.target.scrollTop = e.target.scrollHeight - scrollHeightBefore;
+        }
+      }, 30);
+    }
+  };
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -486,7 +501,7 @@ const ChatContainer = () => {
       )}
 
       {/* messages part of chat container */}
-      <div className="flex-1 overflow-y-scroll p-4 space-y-4">
+      <div className="flex-1 overflow-y-scroll p-4 space-y-4" onScroll={handleScroll}>
         {isMessagesLoading ? (
           <div className="flex flex-col items-center justify-center h-full space-y-2">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
@@ -521,6 +536,7 @@ const ChatContainer = () => {
                 <img
                   src={senderPic || assets.avatar_icon}
                   alt="avatar"
+                  loading="lazy"
                   className="w-8 h-8 rounded-full object-cover self-end shadow-sm"
                 />
                 <div className="flex flex-col gap-0.5 max-w-[90%]">
@@ -541,6 +557,7 @@ const ChatContainer = () => {
                         <img
                           src={message.image}
                           alt="shared content"
+                          loading="lazy"
                           className="max-w-[200px] sm:max-w-[285px] rounded-xl mb-2 cursor-pointer border border-slate-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
                           onClick={() => window.open(message.image)}
                         />

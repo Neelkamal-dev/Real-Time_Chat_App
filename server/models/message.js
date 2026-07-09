@@ -28,6 +28,10 @@ const messageSchema = new mongoose.Schema({
     }
 }, { timestamps: true });   
 
+// Compound query performance indexes
+messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
+messageSchema.index({ receiverId: 1, seen: 1 });
+messageSchema.index({ groupId: 1, createdAt: -1 });
 
 const Message = mongoose.model("Message", messageSchema);
 

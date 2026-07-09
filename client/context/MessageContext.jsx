@@ -29,6 +29,8 @@ export const MessageProvider = ({ children }) => {
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [isSemanticSearch, setIsSemanticSearch] = useState(false);
 
+  const [hasMore, setHasMore] = useState(true);
+
   const getUsers = async () => {
     setIsUsersLoading(true);
     try {
@@ -48,10 +50,12 @@ export const MessageProvider = ({ children }) => {
 
   const getMessages = async (userId) => {
     setIsMessagesLoading(true);
+    setHasMore(true);
     try {
-      const { data } = await axios.get(`/api/messages/${userId}`);
+      const { data } = await axios.get(`/api/messages/${userId}?limit=25`);
       if (data.success) {
         setMessages(data.messages);
+        setHasMore(data.messages.length >= 25);
         setUnseenMessages((prev) => {
           const updated = { ...prev };
           delete updated[userId];
@@ -115,10 +119,12 @@ export const MessageProvider = ({ children }) => {
 
   const getGroupMessages = async (groupId) => {
     setIsMessagesLoading(true);
+    setHasMore(true);
     try {
-      const { data } = await axios.get(`/api/groups/${groupId}/messages`);
+      const { data } = await axios.get(`/api/groups/${groupId}/messages?limit=25`);
       if (data.success) {
         setMessages(data.messages);
+        setHasMore(data.messages.length >= 25);
       } else {
         toast.error(data.message);
       }
@@ -126,6 +132,35 @@ export const MessageProvider = ({ children }) => {
       toast.error(error.message);
     } finally {
       setIsMessagesLoading(false);
+    }
+  };
+
+  const loadMoreMessages = async () => {
+    if (messages.length === 0 || !hasMore) return;
+    const earliestMessage = messages[0];
+    const before = earliestMessage.createdAt;
+
+    try {
+      let endpoint = "";
+      if (selectedUser) {
+        endpoint = `/api/messages/${selectedUser._id}?limit=25&before=${before}`;
+      } else if (selectedGroup) {
+        endpoint = `/api/groups/${selectedGroup._id}/messages?limit=25&before=${before}`;
+      }
+
+      if (!endpoint) return;
+
+      const { data } = await axios.get(endpoint);
+      if (data.success) {
+        if (data.messages.length === 0) {
+          setHasMore(false);
+          return;
+        }
+        setMessages((prev) => [...data.messages, ...prev]);
+        setHasMore(data.messages.length >= 25);
+      }
+    } catch (error) {
+      console.error("Error loading more messages:", error);
     }
   };
 
@@ -450,6 +485,8 @@ export const MessageProvider = ({ children }) => {
     setUnseenMessages,
     transcribeAudio,
     updateMessageTranscript,
+    hasMore,
+    loadMoreMessages,
   };
 
   // We need to implement a frontend method reactToMessage that hits the PUT route in case components call it!

@@ -16,19 +16,18 @@ export const createGroup = async (req, res) => {
       return res.status(400).json({ success: false, message: "Group name is required" });
     }
 
-    // Add admin to members list if not already present
-    let groupMembers = Array.isArray(members) ? [...members] : [];
+    const groupMembers = members ? [...members] : [];
     if (!groupMembers.includes(admin.toString())) {
       groupMembers.push(admin.toString());
     }
 
     let avatarUrl = "";
     if (avatar) {
-      const upload = await cloudinary.uploader.upload(avatar);
-      avatarUrl = upload.secure_url;
+      const uploadedAvatar = await cloudinary.uploader.upload(avatar);
+      avatarUrl = uploadedAvatar.secure_url;
     }
 
-    const newGroup = new Group({
+    const newGroup = await Group.create({
       name,
       description,
       members: groupMembers,
@@ -36,14 +35,13 @@ export const createGroup = async (req, res) => {
       avatar: avatarUrl,
     });
 
-    await newGroup.save();
+    const populatedGroup = await Group.findById(newGroup._id)
+      .populate("members", "-password")
+      .populate("admin", "-password");
 
-    // Populate members for response
-    const populatedGroup = await Group.findById(newGroup._id).populate("members", "-password");
-
-    // Socket notify online members about group creation
+    // Notify all members that they have been added to a group
     groupMembers.forEach((memberId) => {
-      if (memberId !== admin.toString()) {
+      if (memberId.toString() !== admin.toString()) {
         const socketId = userSocketMap[memberId];
         if (socketId) {
           io.to(socketId).emit("group-created", populatedGroup);
@@ -72,13 +70,24 @@ export const getUserGroups = async (req, res) => {
   }
 };
 
-// Get all messages for a specific group
+// Get messages for a specific group with cursor-based pagination
 export const getGroupMessages = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const messages = await Message.find({ groupId })
+    const { limit = 20, before } = req.query;
+
+    const query = { groupId };
+    if (before) {
+      query.createdAt = { $lt: new Date(before) };
+    }
+
+    // Load recent first (descending), then reverse to return chronological order
+    const messages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
       .populate("senderId", "fullName profilePic");
-    res.json({ success: true, messages });
+
+    res.json({ success: true, messages: messages.reverse() });
   } catch (error) {
     console.error("Error getting group messages:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -165,6 +174,6 @@ export const sendGroupMessage = async (req, res) => {
     res.json({ success: true, newMessage: populatedMessage });
   } catch (error) {
     console.error("Error sending group message:", error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(550).json({ success: false, message: error.message });
   }
 };

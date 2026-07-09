@@ -7,11 +7,67 @@ import {
   rewriteText,
   summarizeMessages,
   transcribeVoice,
-  summarizeAudioTranscript
+  summarizeAudioTranscript,
+  rewriteTextStream,
+  summarizeMessagesStream,
+  transcribeVoiceStream
 } from "../services/aiService.js";
 import { generateEmbedding, cosineSimilarity } from "../services/embeddingService.js";
 import { cacheService } from "../services/cacheService.js";
 import { config } from "../config/gemini.js";
+
+// Helper to stream content progressively
+const handleStreamResponse = async (res, streamPromise, cacheKey, ttlSeconds = 300) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  try {
+    const stream = await streamPromise;
+    let fullText = "";
+
+    for await (const chunk of stream.stream) {
+      const chunkText = chunk.text();
+      fullText += chunkText;
+      res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+    }
+
+    if (cacheKey && fullText.trim()) {
+      await cacheService.set(cacheKey, fullText, ttlSeconds);
+    }
+
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } catch (error) {
+    console.error("Streaming error:", error);
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+    res.end();
+  }
+};
+
+// Helper to simulate a progressive stream using cached data
+const handleCachedStreamResponse = async (res, cachedValue) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Split content by character runs to simulate generation ticks
+  const chunks = [];
+  const chunkSize = 15;
+  for (let i = 0; i < cachedValue.length; i += chunkSize) {
+    chunks.push(cachedValue.slice(i, i + chunkSize));
+  }
+
+  for (const chunk of chunks) {
+    res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+    await new Promise((resolve) => setTimeout(resolve, 20)); 
+  }
+
+  res.write("data: [DONE]\n\n");
+  res.end();
+};
 
 // Helper to query message history of a chat (private or group)
 const fetchChatHistory = async (userId, chatId, limit = 10) => {
@@ -35,7 +91,7 @@ const fetchChatHistory = async (userId, chatId, limit = 10) => {
   }
 };
 
-// POST /api/ai/smart-reply
+// POST /api/ai/smart-reply (No streaming needed since suggestions are brief array elements)
 export const getSmartRepliesHandler = async (req, res) => {
   try {
     const { chatId } = req.body;
@@ -79,7 +135,7 @@ export const getSmartRepliesHandler = async (req, res) => {
   }
 };
 
-// POST /api/ai/rewrite
+// POST /api/ai/rewrite (Upgraded to SSE streaming)
 export const rewriteMessageHandler = async (req, res) => {
   try {
     const { text, tone } = req.body;
@@ -96,20 +152,18 @@ export const rewriteMessageHandler = async (req, res) => {
     const cacheKey = `rewrite:${tone}:${Buffer.from(text).toString("base64")}`;
     const cachedRewrite = await cacheService.get(cacheKey);
     if (cachedRewrite) {
-      return res.json({ success: true, rewrittenText: cachedRewrite });
+      return handleCachedStreamResponse(res, cachedRewrite);
     }
 
-    const rewrittenText = await rewriteText(text, tone);
-    await cacheService.set(cacheKey, rewrittenText, 300); 
-
-    return res.status(200).json({ success: true, rewrittenText });
+    const streamPromise = rewriteTextStream(text, tone);
+    return handleStreamResponse(res, streamPromise, cacheKey, 300);
   } catch (error) {
     console.error("Error in rewriteMessageHandler:", error);
     return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };
 
-// POST /api/ai/chat-summary
+// POST /api/ai/chat-summary (Upgraded to SSE streaming)
 export const getUnreadSummaryHandler = async (req, res) => {
   try {
     const { chatId } = req.body;
@@ -122,7 +176,7 @@ export const getUnreadSummaryHandler = async (req, res) => {
     const cacheKey = `summary:${chatId}:${userId}`;
     const cachedSummary = await cacheService.get(cacheKey);
     if (cachedSummary) {
-      return res.json({ success: true, summary: cachedSummary });
+      return handleCachedStreamResponse(res, cachedSummary);
     }
 
     const isGroup = await Group.exists({ _id: chatId });
@@ -147,7 +201,7 @@ export const getUnreadSummaryHandler = async (req, res) => {
     }
 
     if (unreadMessages.length === 0) {
-      return res.status(200).json({ success: true, summary: "All caught up! No unread messages." });
+      return handleCachedStreamResponse(res, "All caught up! No unread messages.");
     }
 
     const chronoUnread = [...unreadMessages].reverse();
@@ -157,16 +211,15 @@ export const getUnreadSummaryHandler = async (req, res) => {
       text: m.text || "[Shared image/file]",
     }));
 
-    const summary = await summarizeMessages(formattedMessages);
-    await cacheService.set(cacheKey, summary, 300);
-    return res.status(200).json({ success: true, summary });
+    const streamPromise = summarizeMessagesStream(formattedMessages);
+    return handleStreamResponse(res, streamPromise, cacheKey, 300);
   } catch (error) {
     console.error("Error in getUnreadSummaryHandler:", error);
     return res.status(500).json({ success: false, message: "Internal server error: " + error.message });
   }
 };
 
-// POST /api/ai/semantic-search
+// POST /api/ai/semantic-search (No streaming needed since returns list of mongoose messages metadata)
 export const semanticSearchHandler = async (req, res) => {
   try {
     const { chatId, query } = req.body;
@@ -235,7 +288,7 @@ export const semanticSearchHandler = async (req, res) => {
   }
 };
 
-// POST /api/ai/transcribe
+// POST /api/ai/transcribe (Upgraded to SSE streaming)
 export const transcribeAudioHandler = async (req, res) => {
   try {
     const { audio, mimeType } = req.body;
@@ -244,18 +297,35 @@ export const transcribeAudioHandler = async (req, res) => {
       return res.status(400).json({ success: false, message: "Base64 audio data string (audio) is required." });
     }
 
-    const transcription = await transcribeVoice(audio, mimeType);
-    
-    let audioSummary = "";
-    if (transcription && transcription.length > 100) {
-      audioSummary = await summarizeAudioTranscript(transcription);
-    }
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
 
-    return res.status(200).json({
-      success: true,
-      transcription,
-      audioSummary
-    });
+    try {
+      const stream = await transcribeVoiceStream(audio, mimeType);
+      let fullTranscription = "";
+
+      for await (const chunk of stream.stream) {
+        const chunkText = chunk.text();
+        fullTranscription += chunkText;
+        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+      }
+
+      let audioSummary = "";
+      if (fullTranscription && fullTranscription.length > 100) {
+        audioSummary = await summarizeAudioTranscript(fullTranscription);
+      }
+
+      // Write summary metadata block to SSE connection
+      res.write(`data: ${JSON.stringify({ summary: audioSummary })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (error) {
+      console.error("Transcription streaming error:", error);
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
   } catch (error) {
     console.error("Error in transcribeAudioHandler:", error);
     return res.status(500).json({ success: false, message: "Internal server error: " + error.message });

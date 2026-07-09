@@ -1,26 +1,39 @@
 import { embeddingModel } from "../config/gemini.js";
+import { validateSearch } from "./responseValidator.js";
 
 /**
- * Generates a vector embedding for the given text query using text-embedding-004.
+ * Generates a vector embedding for the given text query with validation retries.
  * @param {string} text 
- * @returns {Promise<number[]>} - The vector embedding array
+ * @returns {Promise<number[]>} - The vector embedding array (or fallback zero-vector)
  */
 export const generateEmbedding = async (text) => {
-  try {
-    if (!text || typeof text !== "string") {
-      throw new Error("Text is required for embedding generation.");
-    }
-    const cleanText = text.replace(/\n/g, " ");
-    const result = await embeddingModel.embedContent(cleanText);
-    
-    if (result && result.embedding && result.embedding.values) {
-      return result.embedding.values;
-    }
-    throw new Error("Failed to retrieve embedding values from response.");
-  } catch (error) {
-    console.error("Error generating vector embedding:", error);
-    throw error;
+  if (!text || typeof text !== "string") {
+    return new Array(768).fill(0);
   }
+
+  const cleanText = text.replace(/\n/g, " ");
+  let attempts = 0;
+  const maxAttempts = 2;
+
+  while (attempts < maxAttempts) {
+    try {
+      const result = await embeddingModel.embedContent(cleanText);
+      if (result && result.embedding && result.embedding.values) {
+        const values = result.embedding.values;
+        const validation = validateSearch(values);
+        if (validation.isValid) {
+          return validation.data;
+        }
+        console.warn(`Embedding validation failed (attempt ${attempts + 1}/2):`, validation.error);
+      }
+    } catch (error) {
+      console.error(`Error generating vector embedding (attempt ${attempts + 1}/2):`, error.message);
+    }
+    attempts++;
+  }
+
+  // Graceful fallback: return a 768-dimension zero-vector to prevent math or application crashes
+  return new Array(768).fill(0);
 };
 
 /**

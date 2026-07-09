@@ -3,75 +3,102 @@ import { getSmartReplyPrompt } from "../prompts/replyPrompt.js";
 import { getRewritePrompt } from "../prompts/rewritePrompt.js";
 import { getSummaryPrompt } from "../prompts/summaryPrompt.js";
 import { getTranscriptionPrompt, getAudioSummaryPrompt } from "../prompts/transcriptionPrompt.js";
+import { validateSmartReply, validateRewrite, validateSummary } from "./responseValidator.js";
 
 /**
- * Generates 3-5 smart reply suggestions from conversation context.
+ * Generates 3-5 smart reply suggestions from conversation context with validation retries.
  * @param {Array} messagesContext 
  * @returns {Promise<string[]>}
  */
 export const generateSmartReplies = async (messagesContext) => {
-  try {
-    const prompt = getSmartReplyPrompt(messagesContext);
-    const result = await geminiModel.generateContent(prompt);
-    const responseText = result.response.text().trim();
+  let attempts = 0;
+  const maxAttempts = 2;
+  const prompt = getSmartReplyPrompt(messagesContext);
 
-    // Clean up markdown block wraps if model included them
-    const cleanText = responseText.replace(/```json|```/g, "").trim();
+  while (attempts < maxAttempts) {
     try {
-      const suggestions = JSON.parse(cleanText);
-      if (Array.isArray(suggestions)) return suggestions;
-    } catch (e) {
-      console.warn("JSON parsing failed, attempting fallback regex extraction on smart reply:", responseText);
-      // Fallback matching list elements
-      const matches = [...cleanText.matchAll(/"([^"]+)"/g)];
-      if (matches.length > 0) {
-        return matches.map((m) => m[1]).slice(0, 5);
+      const result = await geminiModel.generateContent(prompt);
+      const rawText = result.response.text();
+      
+      const validation = validateSmartReply(rawText);
+      if (validation.isValid) {
+        return validation.data;
       }
+      console.warn(`Smart reply validation failed (attempt ${attempts + 1}/2):`, validation.error);
+    } catch (error) {
+      console.error(`Error in generateSmartReplies (attempt ${attempts + 1}/2):`, error.message);
     }
-    return ["Okay", "Sure", "I will get back to you soon."];
-  } catch (error) {
-    console.error("Error generating smart replies:", error);
-    return ["Okay", "Sure", "Let me check."];
+    attempts++;
   }
+
+  // Graceful fallback suggestions
+  return ["Got it!", "Thanks for sharing.", "Understood."];
 };
 
 /**
- * Rewrites text to match a target tone.
+ * Rewrites draft messages with tone selection and validation retries.
  * @param {string} text 
  * @param {string} tone 
  * @returns {Promise<string>}
  */
 export const rewriteText = async (text, tone) => {
-  try {
-    const prompt = getRewritePrompt(text, tone);
-    const result = await geminiModel.generateContent(prompt);
-    return result.response.text().trim();
-  } catch (error) {
-    console.error("Error in rewriteText:", error);
-    return text; // Return original text on failure
+  let attempts = 0;
+  const maxAttempts = 2;
+  const prompt = getRewritePrompt(text, tone);
+
+  while (attempts < maxAttempts) {
+    try {
+      const result = await geminiModel.generateContent(prompt);
+      const rawText = result.response.text();
+
+      const validation = validateRewrite(rawText);
+      if (validation.isValid) {
+        return validation.data;
+      }
+      console.warn(`Text rewrite validation failed (attempt ${attempts + 1}/2):`, validation.error);
+    } catch (error) {
+      console.error(`Error in rewriteText (attempt ${attempts + 1}/2):`, error.message);
+    }
+    attempts++;
   }
+
+  // Return the original text block if validation fails
+  return text;
 };
 
 /**
- * Summarizes a list of messages.
+ * Summarizes lists of messages with validation retries.
  * @param {Array} messages 
  * @returns {Promise<string>}
  */
 export const summarizeMessages = async (messages) => {
-  try {
-    const prompt = getSummaryPrompt(messages);
-    const result = await geminiModel.generateContent(prompt);
-    return result.response.text().trim();
-  } catch (error) {
-    console.error("Error in summarizeMessages:", error);
-    throw error;
+  let attempts = 0;
+  const maxAttempts = 2;
+  const prompt = getSummaryPrompt(messages);
+
+  while (attempts < maxAttempts) {
+    try {
+      const result = await geminiModel.generateContent(prompt);
+      const rawText = result.response.text();
+
+      const validation = validateSummary(rawText);
+      if (validation.isValid) {
+        return validation.data;
+      }
+      console.warn(`Chat summary validation failed (attempt ${attempts + 1}/2):`, validation.error);
+    } catch (error) {
+      console.error(`Error in summarizeMessages (attempt ${attempts + 1}/2):`, error.message);
+    }
+    attempts++;
   }
+
+  return "Could not generate chat summary at this time.";
 };
 
 /**
- * Transcribes audio from base64 data.
- * @param {string} base64AudioData - Base64 encoded audio string
- * @param {string} mimeType - e.g. "audio/webm" or "audio/mp3"
+ * Transcribes audio base64 buffers directly.
+ * @param {string} base64AudioData 
+ * @param {string} mimeType 
  * @returns {Promise<string>}
  */
 export const transcribeVoice = async (base64AudioData, mimeType) => {
@@ -106,4 +133,34 @@ export const summarizeAudioTranscript = async (transcript) => {
     console.error("Error in summarizeAudioTranscript:", error);
     return "";
   }
+};
+
+/**
+ * Streams rewrite text tone variations.
+ */
+export const rewriteTextStream = async (text, tone) => {
+  const prompt = getRewritePrompt(text, tone);
+  return await geminiModel.generateContentStream(prompt);
+};
+
+/**
+ * Streams chat history summaries.
+ */
+export const summarizeMessagesStream = async (messages) => {
+  const prompt = getSummaryPrompt(messages);
+  return await geminiModel.generateContentStream(prompt);
+};
+
+/**
+ * Streams audio voice transcriptions.
+ */
+export const transcribeVoiceStream = async (base64AudioData, mimeType) => {
+  const prompt = getTranscriptionPrompt();
+  const audioPart = {
+    inlineData: {
+      data: base64AudioData.split(",")[1] || base64AudioData,
+      mimeType: mimeType || "audio/webm",
+    },
+  };
+  return await geminiModel.generateContentStream([prompt, audioPart]);
 };

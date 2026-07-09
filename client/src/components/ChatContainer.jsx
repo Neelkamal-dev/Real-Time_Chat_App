@@ -28,6 +28,7 @@ const ChatContainer = () => {
     isSemanticSearch,
     rewriteMessage,
     getUnreadSummary,
+    transcribeAudio,
     performSemanticSearch,
     setIsSemanticSearch,
   } = useContext(MessageContext);
@@ -48,20 +49,36 @@ const ChatContainer = () => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  // Live streaming voice transcription
+  const [streamingTranscript, setStreamingTranscript] = useState("");
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
+  const transcriptionAbortControllerRef = useRef(null);
+
   // Rewrite Tone states
   const [showRewritePopover, setShowRewritePopover] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
   const [rewrittenPreview, setRewrittenPreview] = useState("");
   const [rewriteTone, setRewriteTone] = useState("");
+  const rewriteAbortControllerRef = useRef(null);
 
   // Unread summary state
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const summaryAbortControllerRef = useRef(null);
 
   useEffect(() => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, imagePreview, typingUsers, suggestions]);
+  }, [messages, imagePreview, typingUsers, suggestions, streamingTranscript]);
+
+  // Clean up all abort controllers on component unmount
+  useEffect(() => {
+    return () => {
+      if (rewriteAbortControllerRef.current) rewriteAbortControllerRef.current.abort();
+      if (summaryAbortControllerRef.current) summaryAbortControllerRef.current.abort();
+      if (transcriptionAbortControllerRef.current) transcriptionAbortControllerRef.current.abort();
+    };
+  }, []);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -125,26 +142,66 @@ const ChatContainer = () => {
     handleRemoveImage();
   };
 
-  // AI Tone Rewrite approve
+  // AI Tone Rewrite - SSE Streaming with abort support
   const handleRewriteSelect = async (tone) => {
     if (!text.trim()) {
       toast.error("Please type some text first to rewrite!");
       return;
     }
+    
+    if (rewriteAbortControllerRef.current) {
+      rewriteAbortControllerRef.current.abort();
+    }
+    rewriteAbortControllerRef.current = new AbortController();
+
     setIsRewriting(true);
     setRewriteTone(tone);
+    setRewrittenPreview("");
     setShowRewritePopover(false);
+
     try {
-      const rewritten = await rewriteMessage(text, tone);
-      setRewrittenPreview(rewritten);
+      await rewriteMessage(
+        text,
+        tone,
+        (chunk) => {
+          if (chunk.text) {
+            setRewrittenPreview((prev) => prev + chunk.text);
+          }
+        },
+        rewriteAbortControllerRef.current.signal
+      );
     } catch (err) {
-      toast.error("Rewrite failed.");
+      console.error("Rewrite aborted or failed:", err);
     } finally {
       setIsRewriting(false);
     }
   };
 
-  // Voice Recording Handlers
+  const handleDiscardRewrite = () => {
+    if (rewriteAbortControllerRef.current) {
+      rewriteAbortControllerRef.current.abort();
+    }
+    setRewrittenPreview("");
+  };
+
+  // Summary triggers with cancellation support
+  const handleShowSummary = () => {
+    if (summaryAbortControllerRef.current) {
+      summaryAbortControllerRef.current.abort();
+    }
+    summaryAbortControllerRef.current = new AbortController();
+    setShowSummaryModal(true);
+    getUnreadSummary(selectedUser._id, () => {}, summaryAbortControllerRef.current.signal);
+  };
+
+  const handleCloseSummary = () => {
+    if (summaryAbortControllerRef.current) {
+      summaryAbortControllerRef.current.abort();
+    }
+    setShowSummaryModal(false);
+  };
+
+  // Voice Note Recording & Live SSE streaming transcription handlers
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -165,22 +222,62 @@ const ChatContainer = () => {
         reader.onloadend = async () => {
           const base64Audio = reader.result;
           
-          const loadingToast = toast.loading("Uploading and transcribing voice note... 🎙️");
+          if (transcriptionAbortControllerRef.current) {
+            transcriptionAbortControllerRef.current.abort();
+          }
+          transcriptionAbortControllerRef.current = new AbortController();
+          
+          setStreamingTranscript("");
+          setIsTranscribingVoice(true);
+
+          let compiledTranscription = "";
+          let compiledSummary = "";
+
           try {
+            await transcribeAudio(
+              base64Audio,
+              "audio/webm",
+              (chunk) => {
+                if (chunk.text) {
+                  compiledTranscription += chunk.text;
+                  setStreamingTranscript(compiledTranscription);
+                }
+                if (chunk.summary) {
+                  compiledSummary = chunk.summary;
+                }
+              },
+              transcriptionAbortControllerRef.current.signal
+            );
+
+            // Send voice message with compiled live transcription + summary metadata
             if (selectedUser) {
               await sendMessage({
                 audio: base64Audio,
                 mimeType: "audio/webm",
+                transcription: compiledTranscription || "[Speech Transcribed]",
+                audioSummary: compiledSummary,
               });
             } else if (selectedGroup) {
               await sendGroupMessage({
                 audio: base64Audio,
                 mimeType: "audio/webm",
+                transcription: compiledTranscription || "[Speech Transcribed]",
+                audioSummary: compiledSummary,
               });
             }
-            toast.success("Voice note sent successfully!", { id: loadingToast });
+            toast.success("Voice message sent with transcript!");
           } catch (err) {
-            toast.error("Failed to send voice note.", { id: loadingToast });
+            if (err.name === "AbortError") {
+              console.log("Transcription aborted.");
+            } else {
+              toast.error("AI Transcription failed. Sending audio fallback.");
+              // Fallback send if error
+              if (selectedUser) await sendMessage({ audio: base64Audio, mimeType: "audio/webm" });
+              else if (selectedGroup) await sendGroupMessage({ audio: base64Audio, mimeType: "audio/webm" });
+            }
+          } finally {
+            setIsTranscribingVoice(false);
+            setStreamingTranscript("");
           }
         };
       };
@@ -188,7 +285,7 @@ const ChatContainer = () => {
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error("Mic recording error:", err);
+      console.error("Mic recording access error:", err);
       toast.error("Could not access microphone.");
     }
   };
@@ -284,10 +381,7 @@ const ChatContainer = () => {
         {/* AI Unread summary Badge */}
         {selectedUser && unseenMessages[selectedUser._id] > 0 && (
           <button
-            onClick={() => {
-              getUnreadSummary(selectedUser._id);
-              setShowSummaryModal(true);
-            }}
+            onClick={handleShowSummary}
             className="cursor-pointer flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 text-[10px] text-blue-600 dark:text-blue-400 font-bold px-2.5 py-1.5 rounded-full transition-all border border-blue-200/50"
             title="Summarize unseen chat history"
           >
@@ -444,7 +538,7 @@ const ChatContainer = () => {
                           {message.transcription && (
                             <div className="text-[11px] border-t border-slate-200 dark:border-slate-800 pt-1.5 mt-0.5">
                               <span className="font-semibold text-blue-500 block mb-0.5">Transcribed Text:</span>
-                              <p className="italic text-slate-600 dark:text-slate-300">"{message.transcription}"</p>
+                              <p className="italic text-slate-600 dark:text-slate-350">"{message.transcription}"</p>
                               {message.audioSummary && (
                                 <div className="mt-1 border-t border-dotted border-slate-200 dark:border-slate-800/80 pt-1">
                                   <span className="font-bold text-[9px] text-slate-400 block mb-0.5">AI Audio Summary:</span>
@@ -535,8 +629,8 @@ const ChatContainer = () => {
         <div ref={scrollEnd}></div>
       </div>
 
-      {/* ------- bottom AI smart repliessuggestions pills ------- */}
-      {suggestions && suggestions.length > 0 && !imagePreview && !isRecording && (
+      {/* ------- bottom AI smart replies suggestions pills ------- */}
+      {suggestions && suggestions.length > 0 && !imagePreview && !isRecording && !isTranscribingVoice && (
         <div className="flex gap-1.5 px-4 py-2 flex-wrap items-center bg-slate-50/50 dark:bg-black/10 border-t border-slate-200/50 dark:border-gray-800/20">
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mr-1">Reply suggestions:</span>
           {isSuggestionsLoading ? (
@@ -572,17 +666,54 @@ const ChatContainer = () => {
         </div>
       )}
 
+      {/* ------- bottom progressive voice transcription overlay ------- */}
+      {isTranscribingVoice && (
+        <div className="absolute bottom-16 left-4 right-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl shadow-xl flex flex-col gap-2 z-20 text-slate-800 dark:text-white animate-in fade-in duration-200">
+          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-1.5">
+            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+              🎙️ Live AI Transcription
+              <span className="flex gap-0.5 items-center">
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (transcriptionAbortControllerRef.current) transcriptionAbortControllerRef.current.abort();
+                setIsTranscribingVoice(false);
+                setStreamingTranscript("");
+              }}
+              className="text-slate-400 hover:text-slate-650 dark:hover:text-white text-xs font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-xs italic text-slate-600 dark:text-slate-350 min-h-6 leading-relaxed">
+            {streamingTranscript || "Listening and converting speech..."}
+          </p>
+        </div>
+      )}
+
       {/* ------- bottom AI text rewrite popup confirmation ------- */}
       {rewrittenPreview && (
         <div className="absolute bottom-16 right-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl max-w-xs z-50 shadow-2xl flex flex-col gap-3 animate-in fade-in duration-200 text-slate-800 dark:text-white">
           <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">AI Rewrite Preview ({rewriteTone})</p>
-          <p className="text-xs italic bg-slate-50 dark:bg-black/10 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/80 text-slate-750 dark:text-gray-300">
-            "{rewrittenPreview}"
-          </p>
+          <div className="text-xs italic bg-slate-50 dark:bg-black/10 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/80 text-slate-750 dark:text-gray-305 min-h-10">
+            {rewrittenPreview}
+            {isRewriting && (
+              <span className="inline-flex gap-0.5 items-center ml-1">
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </span>
+            )}
+          </div>
           <div className="flex justify-end gap-2 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setRewrittenPreview("")}
+              onClick={handleDiscardRewrite}
               className="cursor-pointer px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-gray-500 font-medium transition-all"
             >
               Discard
@@ -591,7 +722,7 @@ const ChatContainer = () => {
               type="button"
               onClick={() => {
                 setText(rewrittenPreview);
-                setRewrittenPreview("");
+                handleDiscardRewrite();
               }}
               className="cursor-pointer px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg active:scale-95 transition-all shadow-md shadow-blue-500/10"
             >
@@ -625,20 +756,20 @@ const ChatContainer = () => {
             type="text"
             value={text}
             onChange={handleTextChange}
-            disabled={isRecording}
-            placeholder={isRecording ? "Recording audio note..." : "Send a message..."}
+            disabled={isRecording || isTranscribingVoice}
+            placeholder={isRecording ? "Recording audio note..." : (isTranscribingVoice ? "Transcribing text..." : "Send a message...")}
             className="flex-1 text-sm p-3 bg-transparent border-none rounded-lg outline-none text-slate-800 dark:text-white placeholder-gray-400 disabled:opacity-50"
           />
 
           {/* AI Magic Wand Rewrite Trigger */}
           <button
             type="button"
-            disabled={isRecording || !text.trim() || isRewriting}
+            disabled={isRecording || !text.trim() || isRewriting || isTranscribingVoice}
             onClick={() => setShowRewritePopover(!showRewritePopover)}
             className="cursor-pointer p-1.5 hover:opacity-85 disabled:opacity-40 disabled:pointer-events-none transition-all flex items-center"
             title="Rewrite with AI"
           >
-            {isRewriting ? (
+            {isRewriting && !rewrittenPreview ? (
               <div className="h-4 w-4 animate-spin border border-blue-600 border-t-transparent rounded-full"></div>
             ) : (
               <span className="text-sm">✨</span>
@@ -653,7 +784,7 @@ const ChatContainer = () => {
             ref={fileInputRef}
             onChange={handleImageChange}
           />
-          <label htmlFor="image-file" className={isRecording ? "opacity-30 pointer-events-none" : "cursor-pointer"}>
+          <label htmlFor="image-file" className={(isRecording || isTranscribingVoice) ? "opacity-30 pointer-events-none" : "cursor-pointer"}>
             <img
               src={assets.gallery_icon}
               alt="gallery"
@@ -665,8 +796,9 @@ const ChatContainer = () => {
         {/* Microphone Recording trigger */}
         <button
           type="button"
+          disabled={isTranscribingVoice}
           onClick={isRecording ? stopRecording : startRecording}
-          className={`cursor-pointer p-3 rounded-full hover:opacity-95 transition-all text-sm shadow-md active:scale-95 ${
+          className={`cursor-pointer p-3 rounded-full hover:opacity-95 transition-all text-sm shadow-md active:scale-95 disabled:opacity-30 ${
             isRecording ? "bg-red-500 text-white animate-pulse" : "bg-slate-100 dark:bg-gray-800/40 text-slate-600 dark:text-gray-300"
           }`}
           title={isRecording ? "Stop voice recording" : "Record voice message"}
@@ -676,7 +808,7 @@ const ChatContainer = () => {
 
         <button
           type="submit"
-          disabled={(!text.trim() && !imagePreview) || isRecording}
+          disabled={(!text.trim() && !imagePreview) || isRecording || isTranscribingVoice}
           className="cursor-pointer bg-blue-600 hover:bg-blue-700 p-2.5 rounded-full hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md shadow-blue-500/10"
         >
           <img src={assets.send_button} alt="Send" className="w-5 h-5 filter invert" />
@@ -692,26 +824,37 @@ const ChatContainer = () => {
                 🤖 AI Unread Summary
               </h3>
               <button
-                onClick={() => setShowSummaryModal(false)}
+                onClick={handleCloseSummary}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg font-bold"
               >
                 ✕
               </button>
             </div>
-            {isSummaryLoading ? (
-              <div className="space-y-3 py-4">
-                <div className="h-4 w-3/4 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
-                <div className="h-4 w-5/6 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
-                <div className="h-4 w-2/3 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+            
+            {isSummaryLoading && !unreadSummary ? (
+              <div className="flex flex-col items-center justify-center py-6 gap-2 text-slate-400">
+                <div className="flex gap-1 items-center">
+                  <span className="h-2 w-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                  <span className="h-2 w-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                  <span className="h-2 w-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                </div>
+                <span className="text-xs font-light">Compiling chat highlights...</span>
               </div>
             ) : (
-              <div className="text-sm space-y-2 py-2 text-slate-600 dark:text-slate-350 leading-relaxed font-light whitespace-pre-line">
+              <div className="text-sm space-y-2 py-2 text-slate-600 dark:text-slate-350 leading-relaxed font-light whitespace-pre-line min-h-12">
                 {unreadSummary || "No summary available."}
+                {isSummaryLoading && (
+                  <span className="inline-flex gap-0.5 items-center ml-1">
+                    <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="h-1 w-1 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                  </span>
+                )}
               </div>
             )}
             <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800 mt-4">
               <button
-                onClick={() => setShowSummaryModal(false)}
+                onClick={handleCloseSummary}
                 className="cursor-pointer px-5 py-2 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white active:scale-95 transition-all shadow-md shadow-blue-500/10"
               >
                 Done

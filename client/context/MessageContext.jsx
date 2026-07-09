@@ -143,6 +143,61 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
+  // Helper to read SSE chunks progressively
+  const readSSEStream = async (url, body, onChunk, signal) => {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${axios.defaults.baseURL || ""}${url}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`SSE stream failed: ${response.statusText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // Keep partial line in buffer
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine.startsWith("data:")) continue;
+
+          const dataStr = cleanLine.replace("data:", "").trim();
+          if (dataStr === "[DONE]") {
+            continue;
+          }
+
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+            onChunk(parsed);
+          } catch (err) {
+            console.error("Error parsing stream line:", err, dataStr);
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  };
+
   // AI Feature Integration API Methods
   const getSmartReplies = async (chatId) => {
     setIsSuggestionsLoading(true);
@@ -158,30 +213,50 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
-  const rewriteMessage = async (text, tone) => {
+  const rewriteMessage = async (text, tone, onChunk, signal) => {
     try {
-      const { data } = await axios.post("/api/ai/rewrite", { text, tone });
-      if (data.success) {
-        return data.rewrittenText;
-      }
+      await readSSEStream("/api/ai/rewrite", { text, tone }, onChunk, signal);
     } catch (error) {
-      console.error("Error rewriting message:", error);
+      if (error.name === "AbortError") {
+        console.log("Rewrite request was cancelled.");
+      } else {
+        console.error("Error rewriting message:", error);
+      }
     }
-    return text;
   };
 
-  const getUnreadSummary = async (chatId) => {
+  const getUnreadSummary = async (chatId, onChunk, signal) => {
     setIsSummaryLoading(true);
     setUnreadSummary("");
     try {
-      const { data } = await axios.post("/api/ai/chat-summary", { chatId });
-      if (data.success) {
-        setUnreadSummary(data.summary || "");
-      }
+      let accumulated = "";
+      await readSSEStream("/api/ai/chat-summary", { chatId }, (chunk) => {
+        if (chunk.text) {
+          accumulated += chunk.text;
+          onChunk(accumulated);
+          setUnreadSummary(accumulated);
+        }
+      }, signal);
     } catch (error) {
-      console.error("Error fetching unread summary:", error);
+      if (error.name === "AbortError") {
+        console.log("Summary request was cancelled.");
+      } else {
+        console.error("Error fetching unread summary:", error);
+      }
     } finally {
       setIsSummaryLoading(false);
+    }
+  };
+
+  const transcribeAudio = async (audio, mimeType, onChunk, signal) => {
+    try {
+      await readSSEStream("/api/ai/transcribe", { audio, mimeType }, onChunk, signal);
+    } catch (error) {
+      if (error.name === "AbortError") {
+        console.log("Transcription request was cancelled.");
+      } else {
+        console.error("Error transcribing audio:", error);
+      }
     }
   };
 

@@ -6,6 +6,7 @@ import cloudinary from "../lib/cloudinary.js";
 import {io,userSocketMap} from "../server.js";
 import { generateEmbedding } from "../services/embeddingService.js";
 import { transcribeVoice, summarizeAudioTranscript } from "../services/aiService.js";
+import { vectorStore } from "../services/vectorStore.js";
 
 export const getUserForSidebar = async (req, res) =>{
   try {
@@ -119,9 +120,11 @@ export const sendMessage = async (req,res)=>{
       audioUrl,
       transcription,
       audioSummary,
-      embedding,
     });
-    await newMessage.save();
+
+    if (embedding && embedding.length > 0) {
+      await vectorStore.upsert(newMessage._id, embedding, { chatId: receiverId });
+    }
 
     // Emit the new message to the receiver if they are online
     const receiverSocketId = userSocketMap[receiverId];

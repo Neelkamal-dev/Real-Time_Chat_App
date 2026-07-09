@@ -4,6 +4,7 @@ import cloudinary from "../lib/cloudinary.js";
 import { io, userSocketMap } from "../server.js";
 import { generateEmbedding } from "../services/embeddingService.js";
 import { transcribeVoice, summarizeAudioTranscript } from "../services/aiService.js";
+import { vectorStore } from "../services/vectorStore.js";
 
 // Create a new group
 export const createGroup = async (req, res) => {
@@ -143,9 +144,11 @@ export const sendGroupMessage = async (req, res) => {
       audioUrl,
       transcription,
       audioSummary,
-      embedding,
     });
-    await newMessage.save();
+
+    if (embedding && embedding.length > 0) {
+      await vectorStore.upsert(newMessage._id, embedding, { chatId: groupId });
+    }
 
     const populatedMessage = await Message.findById(newMessage._id).populate("senderId", "fullName profilePic");
 

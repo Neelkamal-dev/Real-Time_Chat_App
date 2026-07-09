@@ -12,9 +12,10 @@ import {
   summarizeMessagesStream,
   transcribeVoiceStream
 } from "../services/aiService.js";
-import { generateEmbedding, cosineSimilarity } from "../services/embeddingService.js";
+import { generateEmbedding } from "../services/embeddingService.js";
 import { cacheService } from "../services/cacheService.js";
 import { config } from "../config/gemini.js";
+import { vectorStore } from "../services/vectorStore.js";
 
 // Helper to stream content progressively
 const handleStreamResponse = async (res, streamPromise, cacheKey, ttlSeconds = 300) => {
@@ -223,65 +224,18 @@ export const getUnreadSummaryHandler = async (req, res) => {
 export const semanticSearchHandler = async (req, res) => {
   try {
     const { chatId, query } = req.body;
-    const userId = req.user._id;
 
     if (!chatId || !mongoose.Types.ObjectId.isValid(chatId) || !query || typeof query !== "string" || !query.trim()) {
       return res.status(400).json({ success: false, message: "A valid Chat ID (chatId) and non-empty query are required." });
     }
 
+    // 1. Generate query embedding (Embedding Generation)
     const queryVector = await generateEmbedding(query);
 
-    const isGroup = await Group.exists({ _id: chatId });
-    let messages = [];
+    // 2. Perform decoupled similarity vector search query (Vector Store / Similarity Search)
+    const scoredMatches = await vectorStore.search(queryVector, chatId, 10);
 
-    if (isGroup) {
-      messages = await Message.find({ groupId: chatId }).populate("senderId", "fullName profilePic");
-    } else {
-      messages = await Message.find({
-        $or: [
-          { senderId: userId, receiverId: chatId },
-          { senderId: chatId, receiverId: userId },
-        ],
-      }).populate("senderId", "fullName profilePic");
-    }
-
-    const scoredMatches = [];
-
-    for (const msg of messages) {
-      if (!msg.text) continue;
-
-      if (!msg.embedding || msg.embedding.length === 0) {
-        try {
-          msg.embedding = await generateEmbedding(msg.text);
-          await msg.save();
-        } catch (err) {
-          console.error(`Failed to lazy-embed message ${msg._id}:`, err);
-          continue;
-        }
-      }
-
-      const similarity = cosineSimilarity(queryVector, msg.embedding);
-      
-      if (similarity > 0.40) {
-        scoredMatches.push({
-          message: {
-            _id: msg._id,
-            text: msg.text,
-            image: msg.image,
-            audioUrl: msg.audioUrl,
-            transcription: msg.transcription,
-            seen: msg.seen,
-            senderId: msg.senderId,
-            createdAt: msg.createdAt,
-          },
-          score: similarity,
-        });
-      }
-    }
-
-    scoredMatches.sort((a, b) => b.score - a.score);
-
-    return res.status(200).json({ success: true, matches: scoredMatches.slice(0, 10) });
+    return res.status(200).json({ success: true, matches: scoredMatches });
   } catch (error) {
     console.error("Error in semanticSearchHandler:", error);
     return res.status(500).json({ success: false, message: "Internal server error: " + error.message });

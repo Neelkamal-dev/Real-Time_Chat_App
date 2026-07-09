@@ -24,6 +24,9 @@ const ChatContainer = () => {
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
 
+  const [msgSearchQuery, setMsgSearchQuery] = useState("");
+  const [isSearchingMsg, setIsSearchingMsg] = useState(false);
+
   useEffect(() => {
     if (scrollEnd.current) {
       scrollEnd.current.scrollIntoView({ behavior: "smooth" });
@@ -95,6 +98,11 @@ const ChatContainer = () => {
   const isOnline = onlineUsers.includes(selectedUser._id);
   const isUserTyping = typingUsers[selectedUser._id];
 
+  const filteredMessages = messages.filter((message) => {
+    if (!msgSearchQuery.trim()) return true;
+    return message.text && message.text.toLowerCase().includes(msgSearchQuery.toLowerCase());
+  });
+
   return (
     <div className="h-full flex flex-col justify-between relative backdrop-blur-lg bg-black/10">
       {/* header part of chat container */}
@@ -121,6 +129,29 @@ const ChatContainer = () => {
             )}
           </div>
         </div>
+
+        {/* Message Search Bar */}
+        <div className="flex items-center gap-2">
+          {isSearchingMsg && (
+            <input
+              type="text"
+              value={msgSearchQuery}
+              onChange={(e) => setMsgSearchQuery(e.target.value)}
+              placeholder="Search in chat..."
+              className="bg-gray-800/40 text-white text-xs px-3 py-1.5 rounded-full border border-gray-700/50 outline-none w-28 sm:w-40 transition-all text-white bg-transparent"
+            />
+          )}
+          <img
+            onClick={() => {
+              setIsSearchingMsg(!isSearchingMsg);
+              if (isSearchingMsg) setMsgSearchQuery("");
+            }}
+            src={assets.search_icon}
+            alt="Search in chat"
+            className="w-4 cursor-pointer hover:opacity-85 filter invert transition-all"
+          />
+        </div>
+
         <img
           onClick={() => setSelectedUser(null)}
           src={assets.arrow_icon}
@@ -139,8 +170,12 @@ const ChatContainer = () => {
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <p>Say hello to {selectedUser.fullName}! 👋</p>
           </div>
+        ) : filteredMessages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p>No messages match "{msgSearchQuery}"</p>
+          </div>
         ) : (
-          messages.map((message) => {
+          filteredMessages.map((message) => {
             const isSentByMe = message.senderId === authUser._id;
             return (
               <div

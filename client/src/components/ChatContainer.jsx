@@ -14,6 +14,9 @@ const ChatContainer = () => {
     sendMessage,
     isMessagesLoading,
     typingUsers,
+    selectedGroup,
+    setSelectedGroup,
+    sendGroupMessage,
   } = useContext(MessageContext);
 
   const [text, setText] = useState("");
@@ -57,46 +60,59 @@ const ChatContainer = () => {
   const handleTextChange = (e) => {
     setText(e.target.value);
 
-    if (!isTyping) {
-      setIsTyping(true);
-      socket?.emit("typing", { receiverId: selectedUser._id });
-    }
+    // Only direct messaging supports typing indicators
+    if (selectedUser) {
+      if (!isTyping) {
+        setIsTyping(true);
+        socket?.emit("typing", { receiverId: selectedUser._id });
+      }
 
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      socket?.emit("stopTyping", { receiverId: selectedUser._id });
-      setIsTyping(false);
-    }, 2000);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        socket?.emit("stopTyping", { receiverId: selectedUser._id });
+        setIsTyping(false);
+      }, 2000);
+    }
   };
 
   const handleSend = async (e) => {
     e.preventDefault();
     if (!text.trim() && !imagePreview) return;
 
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    socket?.emit("stopTyping", { receiverId: selectedUser._id });
-    setIsTyping(false);
+    if (selectedUser) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      socket?.emit("stopTyping", { receiverId: selectedUser._id });
+      setIsTyping(false);
 
-    await sendMessage({
-      text: text.trim(),
-      image: imagePreview,
-    });
+      await sendMessage({
+        text: text.trim(),
+        image: imagePreview,
+      });
+    } else if (selectedGroup) {
+      await sendGroupMessage({
+        text: text.trim(),
+        image: imagePreview,
+      });
+    }
 
     setText("");
     handleRemoveImage();
   };
 
-  if (!selectedUser) {
+  if (!selectedUser && !selectedGroup) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-5 bg-black/10 text-white">
+      <div className="h-full flex flex-col items-center justify-center gap-5 bg-white/5 dark:bg-black/10 text-white">
         <img src={assets.logo_icon} alt="logo" className="max-w-16 animate-bounce" />
         <p className="text-white text-lg font-medium">Chat anytime, anywhere</p>
       </div>
     );
   }
 
-  const isOnline = onlineUsers.includes(selectedUser._id);
-  const isUserTyping = typingUsers[selectedUser._id];
+  const isOnline = selectedUser ? onlineUsers.includes(selectedUser._id) : false;
+  const isUserTyping = selectedUser ? typingUsers[selectedUser._id] : false;
+
+  const chatName = selectedUser ? selectedUser.fullName : selectedGroup.name;
+  const chatAvatar = selectedUser ? (selectedUser.profilePic || assets.avatar_icon) : null;
 
   const filteredMessages = messages.filter((message) => {
     if (!msgSearchQuery.trim()) return true;
@@ -107,25 +123,37 @@ const ChatContainer = () => {
     <div className="h-full flex flex-col justify-between relative backdrop-blur-lg bg-white/5 dark:bg-black/10">
       {/* header part of chat container */}
       <div className="flex items-center gap-3 py-4 mx-4 border-b border-slate-200 dark:border-stone-500">
-        <img
-          src={selectedUser?.profilePic || assets.avatar_icon}
-          alt={selectedUser.fullName}
-          className="w-9 h-9 object-cover rounded-full"
-        />
+        {chatAvatar ? (
+          <img
+            src={chatAvatar}
+            alt={chatName}
+            className="w-9 h-9 object-cover rounded-full"
+          />
+        ) : (
+          <div className="w-9 h-9 rounded-full bg-violet-600/20 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-sm border border-violet-500/30 uppercase">
+            {chatName.substring(0, 2)}
+          </div>
+        )}
         <div className="flex-1">
           <p className="text-lg font-medium flex items-center gap-2 text-slate-800 dark:text-white">
-            {selectedUser.fullName}
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isOnline ? "bg-green-500" : "bg-gray-500"
-              }`}
-            ></span>
+            {chatName}
+            {selectedUser && (
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isOnline ? "bg-green-500" : "bg-gray-500"
+                }`}
+              ></span>
+            )}
           </p>
           <div className="text-xs">
-            {isUserTyping ? (
-              <span className="text-purple-500 dark:text-purple-400 font-medium animate-pulse">typing...</span>
+            {selectedUser ? (
+              isUserTyping ? (
+                <span className="text-purple-500 dark:text-purple-400 font-medium animate-pulse">typing...</span>
+              ) : (
+                <span className="text-slate-400 dark:text-gray-400">{isOnline ? "Online" : "Offline"}</span>
+              )
             ) : (
-              <span className="text-slate-400 dark:text-gray-400">{isOnline ? "Online" : "Offline"}</span>
+              <span className="text-slate-400 dark:text-gray-400">{selectedGroup.members?.length || 0} members</span>
             )}
           </div>
         </div>
@@ -153,7 +181,10 @@ const ChatContainer = () => {
         </div>
 
         <img
-          onClick={() => setSelectedUser(null)}
+          onClick={() => {
+            setSelectedUser(null);
+            setSelectedGroup(null);
+          }}
           src={assets.arrow_icon}
           alt="Back"
           className="md:hidden max-w-7 cursor-pointer filter dark:invert invert"
@@ -168,7 +199,7 @@ const ChatContainer = () => {
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
-            <p>Say hello to {selectedUser.fullName}! 👋</p>
+            <p>Say hello! 👋</p>
           </div>
         ) : filteredMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
@@ -176,24 +207,31 @@ const ChatContainer = () => {
           </div>
         ) : (
           filteredMessages.map((message) => {
-            const isSentByMe = message.senderId === authUser._id;
+            const sender = message.senderId;
+            const senderId = typeof sender === "object" ? sender._id : sender;
+            const isSentByMe = senderId === authUser._id;
+
+            const senderName = typeof sender === "object" ? sender.fullName : (isSentByMe ? authUser.fullName : selectedUser?.fullName);
+            const senderPic = typeof sender === "object" ? sender.profilePic : (isSentByMe ? authUser.profilePic : selectedUser?.profilePic);
+
             return (
               <div
                 key={message._id}
-                className={`flex gap-3 max-w-[80%] ${
+                className={`flex gap-3 max-w-[85%] ${
                   isSentByMe ? "ml-auto flex-row-reverse" : "mr-auto"
                 }`}
               >
                 <img
-                  src={
-                    isSentByMe
-                      ? (authUser.profilePic || assets.avatar_icon)
-                      : (selectedUser.profilePic || assets.avatar_icon)
-                  }
+                  src={senderPic || assets.avatar_icon}
                   alt="avatar"
                   className="w-8 h-8 rounded-full object-cover self-end shadow-sm"
                 />
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-0.5 max-w-[90%]">
+                  {!isSentByMe && selectedGroup && (
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold ml-1">
+                      {senderName}
+                    </span>
+                  )}
                   <div
                     className={`p-3 rounded-2xl break-words text-sm ${
                       isSentByMe
@@ -217,7 +255,7 @@ const ChatContainer = () => {
                     }`}
                   >
                     <span>{formatMessageTime(message.createdAt)}</span>
-                    {isSentByMe && (
+                    {isSentByMe && !selectedGroup && (
                       message.seen ? (
                         <span className="text-blue-500 dark:text-blue-400 font-bold text-[11px]" title="Seen">✓✓</span>
                       ) : (
@@ -232,7 +270,7 @@ const ChatContainer = () => {
         )}
 
         {/* Real-time typing bubble */}
-        {isUserTyping && (
+        {selectedUser && isUserTyping && (
           <div className="flex gap-3 max-w-[80%] mr-auto items-center">
             <img
               src={selectedUser.profilePic || assets.avatar_icon}

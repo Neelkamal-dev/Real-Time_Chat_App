@@ -7,16 +7,61 @@ import { AuthContext } from "../../context/AuthContext";
 const Sidebar = () => {
   const navigate = useNavigate();
   const { logout, onlineUsers, theme, toggleTheme } = useContext(AuthContext);
-  const { users, getUsers, selectedUser, setSelectedUser, getMessages, unseenMessages } = useContext(MessageContext);
+  const {
+    users,
+    getUsers,
+    selectedUser,
+    setSelectedUser,
+    getMessages,
+    unseenMessages,
+    groups,
+    getGroups,
+    selectedGroup,
+    setSelectedGroup,
+    getGroupMessages,
+    createGroup,
+  } = useContext(MessageContext);
+
   const [searchQuery, setSearchQuery] = useState("");
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selectedMembers, setSelectedMembers] = useState([]);
 
   useEffect(() => {
     getUsers();
+    getGroups();
   }, []);
 
   const handleUserSelect = (user) => {
     setSelectedUser(user);
+    setSelectedGroup(null);
     getMessages(user._id);
+  };
+
+  const handleGroupSelect = (group) => {
+    setSelectedGroup(group);
+    setSelectedUser(null);
+    getGroupMessages(group._id);
+  };
+
+  const handleMemberToggle = (userId) => {
+    setSelectedMembers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleCreateGroupSubmit = async (e) => {
+    e.preventDefault();
+    if (!groupName.trim()) return;
+    const group = await createGroup({
+      name: groupName.trim(),
+      members: selectedMembers,
+    });
+    if (group) {
+      setShowCreateGroup(false);
+      setGroupName("");
+      setSelectedMembers([]);
+    }
   };
 
   const filteredUsers = users.filter((user) =>
@@ -25,7 +70,7 @@ const Sidebar = () => {
 
   return (
     <div
-      className={`bg-[#8185B2]/10 h-full p-5 rounded-r-xl overflow-y-scroll text-slate-800 dark:text-white ${selectedUser ? "max-md:hidden" : ""}`}
+      className={`bg-[#8185B2]/10 h-full p-5 rounded-r-xl overflow-y-scroll text-slate-800 dark:text-white ${selectedUser || selectedGroup ? "max-md:hidden" : ""}`}
     >
       <div className="pb-5">
         <div className="flex justify-between items-center">
@@ -79,6 +124,7 @@ const Sidebar = () => {
 
        {/* user list */}
       <div className="flex flex-col gap-1">
+        <div className="text-xs font-semibold tracking-wider text-gray-400 mb-2 uppercase">Direct Messages</div>
         {filteredUsers.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">No users found</p>
         ) : (
@@ -96,7 +142,7 @@ const Sidebar = () => {
                   <img
                     src={user?.profilePic || assets.avatar_icon}
                     alt={user.fullName}
-                    className="w-10 h-10 object-cover rounded-full"
+                    className="w-10 h-10 object-cover rounded-full shadow-sm"
                   />
                   <span
                     className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#130f26] ${
@@ -120,6 +166,106 @@ const Sidebar = () => {
           })
         )}
       </div>
+
+      {/* Groups Header */}
+      <div className="flex justify-between items-center mt-6 mb-3 border-t border-slate-200 dark:border-gray-600/30 pt-4 text-xs font-semibold tracking-wider text-gray-400">
+        <span className="uppercase">Groups ({groups.length})</span>
+        <button
+          onClick={() => setShowCreateGroup(true)}
+          className="cursor-pointer bg-violet-600 hover:bg-violet-750 text-white text-[10px] py-1 px-2.5 rounded-full font-bold transition-all shadow-sm active:scale-95"
+        >
+          + Create
+        </button>
+      </div>
+
+      {/* Groups List */}
+      <div className="flex flex-col gap-1">
+        {groups.length === 0 ? (
+          <p className="text-gray-500 dark:text-gray-400 text-xs text-center py-2 italic">No groups joined</p>
+        ) : (
+          groups.map((group) => (
+            <div
+              key={group._id}
+              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer max-sm:text-sm hover:bg-slate-200/40 dark:hover:bg-[#282142]/30 transition-all ${
+                selectedGroup?._id === group._id && "bg-slate-200 dark:bg-[#282142]/50 border-l-4 border-violet-500"
+              }`}
+              onClick={() => handleGroupSelect(group)}
+            >
+              <div className="w-10 h-10 rounded-full bg-violet-500/20 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-sm border border-violet-500/30 uppercase shadow-inner">
+                {group.name.substring(0, 2)}
+              </div>
+              <div className="flex flex-col leading-5">
+                <p className="font-medium text-slate-800 dark:text-white">{group.name}</p>
+                <span className="text-[10px] text-slate-400 dark:text-gray-400 font-light">
+                  {group.members?.length || 0} members
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Create Group Modal Backdrop */}
+      {showCreateGroup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1f1936] border border-slate-200 dark:border-gray-700 w-full max-w-md p-6 rounded-2xl shadow-2xl relative text-slate-800 dark:text-white animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-lg font-bold mb-4">Create New Group</h3>
+            <form onSubmit={handleCreateGroupSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Group Name</label>
+                <input
+                  type="text"
+                  required
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  placeholder="e.g. Hackathon Team"
+                  className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-gray-700 bg-transparent text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wider">Select Members</label>
+                <div className="max-h-40 overflow-y-scroll border border-slate-200 dark:border-gray-700 rounded-lg p-2 space-y-2 bg-slate-50 dark:bg-black/10">
+                  {users.length === 0 ? (
+                    <p className="text-gray-500 text-xs text-center py-2">No members available</p>
+                  ) : (
+                    users.map((user) => (
+                      <label key={user._id} className="flex items-center gap-3 cursor-pointer p-1.5 hover:bg-slate-200 dark:hover:bg-white/5 rounded-md transition-all">
+                        <input
+                          type="checkbox"
+                          checked={selectedMembers.includes(user._id)}
+                          onChange={() => handleMemberToggle(user._id)}
+                          className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500 border-slate-300 dark:border-gray-700 accent-violet-600"
+                        />
+                        <img src={user.profilePic || assets.avatar_icon} alt="" className="w-7 h-7 rounded-full object-cover" />
+                        <span className="text-sm font-medium">{user.fullName}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateGroup(false);
+                    setGroupName("");
+                    setSelectedMembers([]);
+                  }}
+                  className="cursor-pointer px-4 py-2 text-sm rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-gray-500 dark:text-gray-300 font-medium transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="cursor-pointer px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-purple-400 to-violet-600 text-white hover:opacity-90 active:scale-95 transition-all shadow-md"
+                >
+                  Create Group
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

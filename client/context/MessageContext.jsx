@@ -13,6 +13,11 @@ export const MessageProvider = ({ children }) => {
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [isMessagesLoading, setIsMessagesLoading] = useState(false);
   const [unseenMessages, setUnseenMessages] = useState({});
+
+  // Group chat states
+  const [groups, setGroups] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [isGroupsLoading, setIsGroupsLoading] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
 
   const getUsers = async () => {
@@ -68,22 +73,94 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
-  // Listen to incoming socket messages
+  // Group chat functions
+  const getGroups = async () => {
+    setIsGroupsLoading(true);
+    try {
+      const { data } = await axios.get("/api/groups");
+      if (data.success) {
+        setGroups(data.groups);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setIsGroupsLoading(false);
+    }
+  };
+
+  const createGroup = async (groupData) => {
+    try {
+      const { data } = await axios.post("/api/groups", groupData);
+      if (data.success) {
+        setGroups((prev) => [...prev, data.group]);
+        toast.success(data.message);
+        return data.group;
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  const getGroupMessages = async (groupId) => {
+    setIsMessagesLoading(true);
+    try {
+      const { data } = await axios.get(`/api/groups/${groupId}/messages`);
+      if (data.success) {
+        setMessages(data.messages);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setIsMessagesLoading(false);
+    }
+  };
+
+  const sendGroupMessage = async (messageData) => {
+    if (!selectedGroup) return;
+    try {
+      const { data } = await axios.post(`/api/groups/${selectedGroup._id}/send`, messageData);
+      if (data.success) {
+        setMessages((prev) => [...prev, data.newMessage]);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  // Listen to incoming socket messages and events
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (newMessage) => {
-      // If the message is from our selected user, append to messages list
-      if (selectedUser && newMessage.senderId === selectedUser._id) {
-        setMessages((prev) => [...prev, newMessage]);
-        // Also call API to mark it as seen since chat is open
-        axios.put(`/api/messages/mark/${newMessage._id}`).catch((err) => console.log(err));
+      // Check if it is a group message
+      if (newMessage.groupId) {
+        if (selectedGroup && newMessage.groupId === selectedGroup._id) {
+          setMessages((prev) => [...prev, newMessage]);
+        } else {
+          // Play a notification or alert
+          toast(`New message in group chat! 👥`, { icon: '👥' });
+        }
       } else {
-        // Otherwise increment unseen count
-        setUnseenMessages((prev) => ({
-          ...prev,
-          [newMessage.senderId]: (prev[newMessage.senderId] || 0) + 1,
-        }));
+        // It is a private message
+        if (selectedUser && newMessage.senderId === selectedUser._id) {
+          setMessages((prev) => [...prev, newMessage]);
+          // Also call API to mark it as seen since chat is open
+          axios.put(`/api/messages/mark/${newMessage._id}`).catch((err) => console.log(err));
+        } else {
+          // Otherwise increment unseen count
+          setUnseenMessages((prev) => ({
+            ...prev,
+            [newMessage.senderId]: (prev[newMessage.senderId] || 0) + 1,
+          }));
+        }
       }
     };
 
@@ -111,11 +188,17 @@ export const MessageProvider = ({ children }) => {
       setTypingUsers((prev) => ({ ...prev, [senderId]: false }));
     };
 
+    const handleGroupCreated = (newGroup) => {
+      setGroups((prev) => [...prev, newGroup]);
+      toast(`You were added to a new group: ${newGroup.name} 👥`, { icon: '👥' });
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("messages-seen", handleMessagesSeen);
     socket.on("message-seen", handleSingleMessageSeen);
     socket.on("typing", handleTyping);
     socket.on("stopTyping", handleStopTyping);
+    socket.on("group-created", handleGroupCreated);
 
     return () => {
       socket.off("new-message", handleNewMessage);
@@ -123,8 +206,9 @@ export const MessageProvider = ({ children }) => {
       socket.off("message-seen", handleSingleMessageSeen);
       socket.off("typing", handleTyping);
       socket.off("stopTyping", handleStopTyping);
+      socket.off("group-created", handleGroupCreated);
     };
-  }, [socket, selectedUser]);
+  }, [socket, selectedUser, selectedGroup]);
 
   const value = {
     users,
@@ -134,10 +218,18 @@ export const MessageProvider = ({ children }) => {
     isMessagesLoading,
     unseenMessages,
     typingUsers,
+    groups,
+    selectedGroup,
+    isGroupsLoading,
     setSelectedUser,
+    setSelectedGroup,
     getUsers,
     getMessages,
     sendMessage,
+    getGroups,
+    createGroup,
+    getGroupMessages,
+    sendGroupMessage,
     setMessages,
     setUnseenMessages,
   };

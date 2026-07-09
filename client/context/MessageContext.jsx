@@ -135,6 +135,19 @@ export const MessageProvider = ({ children }) => {
     }
   };
 
+  const reactToMessage = async (messageId, emoji) => {
+    try {
+      const { data } = await axios.put(`/api/messages/react/${messageId}`, { emoji });
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg._id === messageId ? { ...msg, reactions: data.reactions } : msg))
+        );
+      }
+    } catch (error) {
+      console.error("Error reacting to message:", error);
+    }
+  };
+
   // Listen to incoming socket messages and events
   useEffect(() => {
     if (!socket) return;
@@ -193,12 +206,19 @@ export const MessageProvider = ({ children }) => {
       toast(`You were added to a new group: ${newGroup.name} 👥`, { icon: '👥' });
     };
 
+    const handleReaction = ({ messageId, reactions }) => {
+      setMessages((prev) =>
+        prev.map((msg) => (msg._id === messageId ? { ...msg, reactions } : msg))
+      );
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("messages-seen", handleMessagesSeen);
     socket.on("message-seen", handleSingleMessageSeen);
     socket.on("typing", handleTyping);
     socket.on("stopTyping", handleStopTyping);
     socket.on("group-created", handleGroupCreated);
+    socket.on("message-reaction", handleReaction);
 
     return () => {
       socket.off("new-message", handleNewMessage);
@@ -207,6 +227,7 @@ export const MessageProvider = ({ children }) => {
       socket.off("typing", handleTyping);
       socket.off("stopTyping", handleStopTyping);
       socket.off("group-created", handleGroupCreated);
+      socket.off("message-reaction", handleReaction);
     };
   }, [socket, selectedUser, selectedGroup]);
 
@@ -230,6 +251,7 @@ export const MessageProvider = ({ children }) => {
     createGroup,
     getGroupMessages,
     sendGroupMessage,
+    reactToMessage,
     setMessages,
     setUnseenMessages,
   };

@@ -6,7 +6,13 @@ const messageSchema = new mongoose.Schema({
     groupId : {type:mongoose.Schema.Types.ObjectId,ref: "Group"},
     text : {type:String},
     image : {type: String},
-    seen : { type : Boolean,default : false}
+    seen : { type : Boolean,default : false},
+    reactions: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        emoji: { type: String, required: true }
+      }
+    ]
 }, { timestamps: true });   
 
 

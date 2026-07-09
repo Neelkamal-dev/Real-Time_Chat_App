@@ -17,6 +17,7 @@ const ChatContainer = () => {
     selectedGroup,
     setSelectedGroup,
     sendGroupMessage,
+    reactToMessage,
   } = useContext(MessageContext);
 
   const [text, setText] = useState("");
@@ -232,23 +233,60 @@ const ChatContainer = () => {
                       {senderName}
                     </span>
                   )}
-                  <div
-                    className={`p-3 rounded-2xl break-words text-sm ${
-                      isSentByMe
-                        ? "bg-violet-600 text-white rounded-br-none dark:bg-violet-600/40"
-                        : "bg-slate-200 text-slate-800 rounded-bl-none dark:bg-gray-700/40 dark:text-white"
-                    }`}
-                  >
-                    {message.image && (
-                      <img
-                        src={message.image}
-                        alt="shared content"
-                        className="max-w-[200px] sm:max-w-[280px] rounded-lg mb-2 cursor-pointer border border-slate-300 dark:border-gray-700 hover:opacity-90"
-                        onClick={() => window.open(message.image)}
-                      />
-                    )}
-                    {message.text && <p>{message.text}</p>}
+                  <div className="relative group/msg flex items-center">
+                    <div
+                      className={`p-3 rounded-2xl break-words text-sm ${
+                        isSentByMe
+                          ? "bg-violet-600 text-white rounded-br-none dark:bg-violet-600/40"
+                          : "bg-slate-200 text-slate-800 rounded-bl-none dark:bg-gray-700/40 dark:text-white"
+                      }`}
+                    >
+                      {message.image && (
+                        <img
+                          src={message.image}
+                          alt="shared content"
+                          className="max-w-[200px] sm:max-w-[280px] rounded-lg mb-2 cursor-pointer border border-slate-300 dark:border-gray-700 hover:opacity-90"
+                          onClick={() => window.open(message.image)}
+                        />
+                      )}
+                      {message.text && <p>{message.text}</p>}
+                    </div>
+
+                    {/* Hover Emoji Reaction Selector */}
+                    <div
+                      className={`opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150 absolute top-1/2 -translate-y-1/2 flex gap-1 bg-white dark:bg-[#282142] border border-slate-200 dark:border-gray-700 px-2 py-1 rounded-full shadow-lg z-10 ${
+                        isSentByMe ? "-left-44" : "-right-44"
+                      }`}
+                    >
+                      {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => reactToMessage(message._id, emoji)}
+                          className="cursor-pointer hover:scale-130 transition-transform text-sm px-0.5"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Reactions List */}
+                  {message.reactions && message.reactions.length > 0 && (
+                    <div className={`flex flex-wrap gap-1 mt-1 ${isSentByMe ? "justify-end" : "justify-start"}`}>
+                      {message.reactions.map((reaction, i) => (
+                        <span
+                          key={i}
+                          onClick={() => reactToMessage(message._id, reaction.emoji)}
+                          className="inline-flex items-center bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-full px-2 py-0.5 text-[10px] select-none cursor-pointer hover:scale-105 transition-all shadow-sm font-semibold"
+                          title="Click to toggle reaction"
+                        >
+                          {reaction.emoji}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   <div
                     className={`flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 ${
                       isSentByMe ? "justify-end" : "justify-start"

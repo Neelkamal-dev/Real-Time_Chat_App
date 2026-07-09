@@ -1,6 +1,7 @@
 // Get all users except the logged in user 
 import User from "../models/User.js";
 import Message from "../models/message.js";
+import Group from "../models/Group.js";
 import cloudinary from "../lib/cloudinary.js";
 import {io,userSocketMap} from "../server.js";
 
@@ -94,3 +95,71 @@ export const sendMessage = async (req,res)=>{
     res.json({success:false,message:error.message}) 
   } 
 }
+
+// React to message (toggle reaction)
+export const reactToMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const { emoji } = req.body;
+    const userId = req.user._id;
+
+    if (!emoji) {
+      return res.status(400).json({ success: false, message: "Emoji is required" });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
+
+    // Check if user already reacted
+    const existingReactionIndex = message.reactions.findIndex(
+      (r) => r.userId.toString() === userId.toString()
+    );
+
+    if (existingReactionIndex > -1) {
+      if (message.reactions[existingReactionIndex].emoji === emoji) {
+        // Toggle off (remove reaction)
+        message.reactions.splice(existingReactionIndex, 1);
+      } else {
+        // Update reaction emoji
+        message.reactions[existingReactionIndex].emoji = emoji;
+      }
+    } else {
+      // Add new reaction
+      message.reactions.push({ userId, emoji });
+    }
+
+    await message.save();
+
+    // Notify other users
+    if (message.groupId) {
+      const group = await Group.findById(message.groupId);
+      if (group) {
+        group.members.forEach((memberId) => {
+          if (memberId.toString() !== userId.toString()) {
+            const socketId = userSocketMap[memberId];
+            if (socketId) {
+              io.to(socketId).emit("message-reaction", { messageId, reactions: message.reactions });
+            }
+          }
+        });
+      }
+    } else {
+      const targets = [message.senderId, message.receiverId];
+      targets.forEach((targetId) => {
+        if (targetId.toString() !== userId.toString()) {
+          const socketId = userSocketMap[targetId];
+          if (socketId) {
+            io.to(socketId).emit("message-reaction", { messageId, reactions: message.reactions });
+          }
+        }
+      });
+    }
+
+    res.json({ success: true, reactions: message.reactions });
+  } catch (error) {
+    console.error("Error in reactToMessage:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
